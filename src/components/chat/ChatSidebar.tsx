@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { User, Conversation } from '@/types/chat';
 import { Search, MoreVertical, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import apiClient from '@/lib/api';
 
 interface ChatSidebarProps {
   currentUser: User;
@@ -37,10 +38,9 @@ export function ChatSidebar({
 
   const fetchConversations = async () => {
     try {
-      const response = await fetch('/api/conversations');
-      const data = await response.json();
-      if (data.success) {
-        setConversations(data.data);
+      const res = await apiClient.getConversations();
+      if (res.success && res.data) {
+        setConversations(res.data);
       }
     } catch (error) {
       console.error('Error fetching conversations:', error);
@@ -49,10 +49,9 @@ export function ChatSidebar({
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/users');
-      const data = await response.json();
-      if (data.success) {
-        setUsers(data.data);
+      const res = await apiClient.getUsers();
+      if (res.success && res.data) {
+        setUsers(res.data);
       }
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -61,14 +60,9 @@ export function ChatSidebar({
 
   const handleUserClick = async (user: User) => {
     try {
-      const response = await fetch('/api/conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participantId: user._id }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        onSelectConversation(data.data);
+      const res = await apiClient.createConversation(user._id);
+      if (res.success && res.data) {
+        onSelectConversation(res.data);
         fetchConversations();
       }
     } catch (error) {
@@ -78,7 +72,7 @@ export function ChatSidebar({
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await apiClient.logout();
       router.push('/');
     } catch (error) {
       console.error('Error logging out:', error);

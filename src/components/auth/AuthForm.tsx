@@ -4,39 +4,58 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { SiGoogle } from 'react-icons/si';
+import apiClient from '@/lib/api';
+
+type FormMode = 'login' | 'signup' | 'set-password';
 
 export function AuthForm() {
-  const [isLogin, setIsLogin] = useState(true);
+  const [mode, setMode] = useState<FormMode>('login');
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     name: '',
   });
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
 
     try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup';
-      const body = isLogin
-        ? { email: formData.email, password: formData.password }
-        : formData;
+      let res;
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      if (mode === 'set-password') {
+        res = await apiClient.setPassword(formData.email, formData.password);
+        if (res.success) {
+          setSuccess('Password set successfully! You can now log in.');
+          setMode('login');
+          setFormData({ ...formData, password: '' });
+          setLoading(false);
+          return;
+        }
+      } else if (mode === 'login') {
+        res = await apiClient.login(formData.email, formData.password);
+      } else {
+        res = await apiClient.signup(formData.email, formData.password, formData.name);
+      }
 
-      const data = await response.json();
+      if (!res.success) {
+        const errorMsg = typeof res.error === 'string' ? res.error : res.error?.message || 'Something went wrong';
 
-      if (!data.success) {
-        setError(data.error || 'Something went wrong');
+        // If user is OAuth-only, suggest setting a password
+        if (errorMsg.includes('OAuth') || errorMsg.includes('Google')) {
+          setError('This account was created with Google. Set a password below to enable email login.');
+          setMode('set-password');
+          setLoading(false);
+          return;
+        }
+
+        setError(errorMsg);
         return;
       }
 
@@ -45,6 +64,23 @@ export function AuthForm() {
       setError('An error occurred. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getTitle = () => {
+    switch (mode) {
+      case 'login': return 'Welcome back!';
+      case 'signup': return 'Create your account';
+      case 'set-password': return 'Set your password';
+    }
+  };
+
+  const getButtonText = () => {
+    if (loading) return 'Please wait...';
+    switch (mode) {
+      case 'login': return 'Sign In';
+      case 'signup': return 'Sign Up';
+      case 'set-password': return 'Set Password';
     }
   };
 
@@ -73,13 +109,13 @@ export function AuthForm() {
               WhatUp Chat
             </h1>
             <p className="text-sm sm:text-base text-[var(--text-secondary)]">
-              {isLogin ? 'Welcome back!' : 'Create your account'}
+              {getTitle()}
             </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
-            {!isLogin && (
+            {mode === 'signup' && (
               <div>
                 <label
                   htmlFor="name"
@@ -90,7 +126,7 @@ export function AuthForm() {
                 <input
                   id="name"
                   type="text"
-                  required={!isLogin}
+                  required={mode === 'signup'}
                   value={formData.name}
                   onChange={(e) =>
                     setFormData({ ...formData, name: e.target.value })
@@ -147,41 +183,64 @@ export function AuthForm() {
               </div>
             )}
 
+            {success && (
+              <div className="bg-green-500/10 border border-green-500 text-green-500 px-4 py-3 rounded-lg text-sm">
+                {success}
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading}
               className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base py-2.5 sm:py-3"
             >
-              {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Sign Up'}
+              {getButtonText()}
             </button>
           </form>
 
           {/* OAuth / Toggle Form */}
           <div className="mt-4 sm:mt-6 text-center space-y-3">
-            <div>
-              <a
-                href="/api/auth/google/redirect"
-                className="inline-flex items-center justify-center w-full border border-[var(--border-primary)] rounded-lg py-2 sm:py-2.5 px-4 hover:bg-[var(--bg-hover)] transition-colors text-sm"
-                aria-label="Sign in with Google"
-              >
-                <SiGoogle className="w-5 h-5 mr-2" />
-                Sign in with Google
-              </a>
-            </div>
+            {mode !== 'set-password' && (
+              <div>
+                <a
+                  href="/api/auth/google/redirect"
+                  className="inline-flex items-center justify-center w-full border border-[var(--border-primary)] rounded-lg py-2 sm:py-2.5 px-4 hover:bg-[var(--bg-hover)] transition-colors text-sm"
+                  aria-label="Sign in with Google"
+                >
+                  <SiGoogle className="w-5 h-5 mr-2" />
+                  Sign in with Google
+                </a>
+              </div>
+            )}
 
             <div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(!isLogin);
-                  setError('');
-                }}
-                className="text-[var(--accent-primary)] hover:text-[var(--accent-hover)] text-sm font-medium"
-              >
-                {isLogin
-                  ? "Don't have an account? Sign up"
-                  : 'Already have an account? Sign in'}
-              </button>
+              {mode === 'set-password' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('login');
+                    setError('');
+                    setSuccess('');
+                  }}
+                  className="text-[var(--accent-primary)] hover:text-[var(--accent-hover)] text-sm font-medium"
+                >
+                  Back to Sign In
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode(mode === 'login' ? 'signup' : 'login');
+                    setError('');
+                    setSuccess('');
+                  }}
+                  className="text-[var(--accent-primary)] hover:text-[var(--accent-hover)] text-sm font-medium"
+                >
+                  {mode === 'login'
+                    ? "Don't have an account? Sign up"
+                    : 'Already have an account? Sign in'}
+                </button>
+              )}
             </div>
           </div>
         </div>

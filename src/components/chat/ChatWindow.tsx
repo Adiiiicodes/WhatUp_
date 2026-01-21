@@ -8,6 +8,7 @@ import { MessageBubble } from './MessageBubble';
 import dynamic from 'next/dynamic';
 import type { EmojiClickData } from 'emoji-picker-react';
 import { Theme } from 'emoji-picker-react';
+import apiClient from '@/lib/api';
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
@@ -75,22 +76,15 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
   const fetchMessages = useCallback(async () => {
     try {
-      const response = await fetch(
-        `/api/messages?conversationId=${conversation._id}`
-      );
-      
-      // If conversation doesn't exist anymore, stop polling
-      if (response.status === 404) {
-        console.warn('Conversation no longer exists, stopping message polling');
+      const res = await apiClient.getMessages(conversation._id);
+
+      if (res.success && res.data) {
+        setMessages(res.data);
+      } else if (res.error) {
+        console.warn('Error fetching messages:', res.error);
+        // If conversation doesn't exist anymore, stop polling
         setMessages([]);
-        // Notify parent to refresh conversations list
         window.dispatchEvent(new CustomEvent('conversations:refresh'));
-        return;
-      }
-      
-      const data = await response.json();
-      if (data.success) {
-        setMessages(data.data);
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
@@ -164,20 +158,15 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
     setLoading(true);
     try {
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId: conversation._id,
-          receiverId: otherUser._id,
-          content: newMessage,
-          type: 'text',
-        }),
+      const res = await apiClient.sendMessage({
+        conversationId: conversation._id,
+        receiverId: otherUser._id,
+        content: newMessage,
+        type: 'text',
       });
 
-      const data = await response.json();
-      if (data.success) {
-        setMessages([...messages, data.data]);
+      if (res.success && res.data) {
+        setMessages([...messages, res.data]);
         setNewMessage('');
         // Force scroll to bottom when user sends a message
         shouldAutoScrollRef.current = true;
@@ -196,20 +185,9 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     setShowAttachMenu(false);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('conversationId', conversation._id);
-      formData.append('receiverId', otherUser._id);
-      formData.append('type', type);
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setMessages([...messages, data.data]);
+      const res = await apiClient.uploadFile(file, conversation._id, otherUser._id, type);
+      if (res.success && res.data) {
+        setMessages([...messages, res.data]);
         // Force scroll to bottom when user uploads a file
         shouldAutoScrollRef.current = true;
       }

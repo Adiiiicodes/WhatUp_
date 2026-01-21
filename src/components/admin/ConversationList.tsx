@@ -2,8 +2,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Conversation, User, Message } from '@/types/chat';
+import { Conversation, Message, User } from '@/types/chat';
 import ConversationModal from './ConversationModal';
+import apiClient from '@/lib/api';
 
 export default function ConversationList() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -16,17 +17,11 @@ export default function ConversationList() {
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const response = await fetch('/api/admin/conversations', {
-          credentials: 'include',
-        });
-        if (!response.ok) {
-          throw new Error('Failed to fetch conversations');
-        }
-        const data = await response.json();
-        if (data.success) {
-          setConversations(data.data);
+        const res = await apiClient.adminGetConversations();
+        if (res.success && res.data) {
+          setConversations(res.data);
         } else {
-          throw new Error(data.error || 'Unknown error');
+          throw new Error(typeof res.error === 'string' ? res.error : 'Unknown error');
         }
       } catch (err) {
         setError((err as Error).message);
@@ -40,18 +35,12 @@ export default function ConversationList() {
 
   const fetchMessages = async (conversationId: string) => {
     try {
-      const response = await fetch(`/api/messages?conversationId=${conversationId}`, {
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch messages');
-      }
-      const data = await response.json();
-      if (data.success) {
-        setMessages(data.data);
+      const res = await apiClient.getMessages(conversationId);
+      if (res.success && res.data) {
+        setMessages(res.data);
         setIsModalOpen(true);
       } else {
-        throw new Error(data.error || 'Unknown error');
+        throw new Error(typeof res.error === 'string' ? res.error : 'Unknown error');
       }
     } catch (err) {
       setError((err as Error).message);

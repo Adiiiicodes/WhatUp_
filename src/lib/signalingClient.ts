@@ -14,10 +14,28 @@ export interface MessagePayload {
   fileId?: string;
   fileName?: string;
   fileSize?: number;
+  replyToId?: string;
+}
+
+export interface EditMessagePayload {
+  conversationId: string;
+  messageId: string;
+  content: string;
 }
 
 export interface NewMessageEvent {
   message: Message;
+  sender: {
+    userId: string;
+    name: string;
+    avatarUrl?: string;
+  };
+}
+
+export interface UpdatedMessageEvent {
+  messageId: string;
+  conversationId: string;
+  content: string;
   sender: {
     userId: string;
     name: string;
@@ -49,6 +67,7 @@ export interface MessageResponse extends SocketResponse {
 class SocketClient {
   private socket: Socket | null = null;
   private messageHandlers: ((event: NewMessageEvent) => void)[] = [];
+  private updatedHandlers: ((event: UpdatedMessageEvent) => void)[] = [];
   private deletedHandlers: ((event: { messageId: string; conversationId: string }) => void)[] = [];
   private typingHandlers: ((event: TypingEvent) => void)[] = [];
   private statusHandlers: ((event: UserStatusEvent) => void)[] = [];
@@ -71,6 +90,10 @@ class SocketClient {
 
     this.socket.on('message:new', (payload: NewMessageEvent) => {
       this.messageHandlers.forEach((handler) => handler(payload));
+    });
+
+    this.socket.on('message:updated', (payload: UpdatedMessageEvent) => {
+      this.updatedHandlers.forEach((handler) => handler(payload));
     });
 
     this.socket.on('message:deleted', (payload: { messageId: string; conversationId: string }) => {
@@ -130,6 +153,19 @@ class SocketClient {
     });
   }
 
+  // Edit a message
+  editMessage(payload: EditMessagePayload): Promise<SocketResponse> {
+    return new Promise((resolve) => {
+      if (!this.socket) {
+        resolve({ success: false, error: 'Not connected' });
+        return;
+      }
+      this.socket.emit('message:edit', payload, (response: SocketResponse) => {
+        resolve(response);
+      });
+    });
+  }
+
   // Delete a message
   deleteMessage(messageId: string, conversationId: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -170,6 +206,13 @@ class SocketClient {
     this.messageHandlers.push(handler);
     return () => {
       this.messageHandlers = this.messageHandlers.filter((h) => h !== handler);
+    };
+  }
+
+  onMessageUpdated(handler: (event: UpdatedMessageEvent) => void) {
+    this.updatedHandlers.push(handler);
+    return () => {
+      this.updatedHandlers = this.updatedHandlers.filter((h) => h !== handler);
     };
   }
 

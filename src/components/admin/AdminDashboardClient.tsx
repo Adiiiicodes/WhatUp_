@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { User } from '@/types/chat';
 import { Trash2, UserPlus, LogOut } from 'lucide-react';
 import ConversationList from '@/components/admin/ConversationList';
+import apiClient from '@/lib/api';
 
 export default function AdminDashboardClient() {
   const [users, setUsers] = useState<User[]>([]);
@@ -19,11 +20,12 @@ export default function AdminDashboardClient() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/admin/users?t=${new Date().getTime()}`, { credentials: 'include' });
-      if (!response.ok) throw new Error('Failed to fetch users');
-      const data = await response.json();
-      if (data.success) setUsers(data.data);
-      else throw new Error(data.error || 'Unknown error');
+      const res = await apiClient.adminGetUsers();
+      if (res.success && res.data) {
+        setUsers(res.data);
+      } else {
+        throw new Error(typeof res.error === 'string' ? res.error : 'Unknown error');
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -34,17 +36,12 @@ export default function AdminDashboardClient() {
   const handleDeleteUser = async (userId: string) => {
     if (confirm('Are you sure you want to delete this user?')) {
       try {
-        const response = await fetch('/api/users', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId }),
-          credentials: 'include',
-        });
-        const data = await response.json();
-        if (data.success) {
+        const res = await apiClient.deleteUser(userId);
+        if (res.success) {
           setUsers(users.filter(user => user._id !== userId));
         } else {
-          alert(data.error || 'Failed to delete user');
+          const errorMsg = typeof res.error === 'string' ? res.error : 'Failed to delete user';
+          alert(errorMsg);
         }
       } catch (err) {
         alert((err as Error).message);
@@ -60,19 +57,14 @@ export default function AdminDashboardClient() {
     }
     setMakeAdminMessage('');
     try {
-      const response = await fetch('/api/make-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: adminEmail }),
-        credentials: 'include',
-      });
-      const data = await response.json();
-      if (data.success) {
-        setMakeAdminMessage(data.message);
+      const res = await apiClient.makeAdmin(adminEmail);
+      if (res.success) {
+        setMakeAdminMessage('User is now an admin');
         setAdminEmail('');
         alert('User is now an admin. They must re-login to obtain admin privileges.');
       } else {
-        setMakeAdminMessage(data.error || 'Failed to make user admin');
+        const errorMsg = typeof res.error === 'string' ? res.error : 'Failed to make user admin';
+        setMakeAdminMessage(errorMsg);
       }
     } catch (err) {
       setMakeAdminMessage((err as Error).message);
@@ -87,20 +79,16 @@ export default function AdminDashboardClient() {
     }
     setAddUserMessage('');
     try {
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: newUserEmail, password: newUserPassword, name: newUserName }),
-      });
-      const data = await response.json();
-      if (data.success) {
+      const res = await apiClient.signup(newUserEmail, newUserPassword, newUserName);
+      if (res.success) {
         setAddUserMessage('User created successfully.');
         setNewUserEmail('');
         setNewUserPassword('');
         setNewUserName('');
         fetchUsers();
       } else {
-        setAddUserMessage(data.error || 'Failed to create user');
+        const errorMsg = typeof res.error === 'string' ? res.error : 'Failed to create user';
+        setAddUserMessage(errorMsg);
       }
     } catch (err) {
       setAddUserMessage((err as Error).message);
@@ -109,7 +97,7 @@ export default function AdminDashboardClient() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' });
+      await apiClient.logout();
     } finally {
       // redirect to login page
       window.location.href = '/8369746981/login';

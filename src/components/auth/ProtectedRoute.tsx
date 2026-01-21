@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import apiClient from '@/lib/api';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
@@ -12,10 +13,9 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const response = await fetch('/api/auth/me');
-        const data = await response.json();
+        const res = await apiClient.getMe();
 
-        if (data.success) {
+        if (res.success) {
           setAuthenticated(true);
         } else {
           router.push('/');

@@ -6,6 +6,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatWindow } from '@/components/chat/ChatWindow';
 import { User, Conversation } from '@/types/chat';
+import apiClient from '@/lib/api';
 
 function ChatPageContent() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -18,11 +19,10 @@ function ChatPageContent() {
 
   const fetchCurrentUser = async () => {
     try {
-      const response = await fetch('/api/auth/me');
-      const data = await response.json();
-      if (data.success) {
-        setCurrentUser(data.data);
-      } 
+      const res = await apiClient.getMe();
+      if (res.success && res.data) {
+        setCurrentUser(res.data);
+      }
     } catch (error) {
       console.error('Error fetching current user:', error);
     } finally {

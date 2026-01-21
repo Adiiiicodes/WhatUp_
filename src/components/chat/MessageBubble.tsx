@@ -2,13 +2,15 @@
 import { Message } from '@/types/chat';
 import { Download, FileText, Mic, ChevronDown, Trash2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import apiClient from '@/lib/api';
 
 interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
+  conversationId?: string;
 }
 
-export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -28,14 +30,18 @@ export function MessageBubble({ message, isOwn }: MessageBubbleProps) {
   const handleDelete = async () => {
     setShowMenu(false);
     if (!confirm('Delete this message for everyone?')) return;
+    if (!conversationId) {
+      alert('Cannot delete: conversation ID missing');
+      return;
+    }
     try {
-      const res = await fetch(`/api/messages/${message._id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
+      const res = await apiClient.deleteMessage(message._id, conversationId);
+      if (res.success) {
         window.dispatchEvent(new CustomEvent('message:deleted', { detail: { id: message._id } }));
         window.dispatchEvent(new CustomEvent('conversations:refresh'));
       } else {
-        alert(data.error || 'Failed to delete message');
+        const errorMsg = typeof res.error === 'string' ? res.error : res.error?.message || 'Failed to delete message';
+        alert(errorMsg);
       }
     } catch (e) {
       console.error('Delete error', e);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import apiClient from '@/lib/api';
 
 export default function AdminLoginPage() {
   const [id, setId] = useState('');
@@ -11,16 +12,15 @@ export default function AdminLoginPage() {
     e.preventDefault();
     setError(null);
     try {
-      const res = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, pass }),
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setError(data.error || 'Login failed');
+      const res = await apiClient.adminLogin(id, pass);
+      if (!res.success) {
+        const errorMsg = typeof res.error === 'string' ? res.error : 'Login failed';
+        setError(errorMsg);
         return;
+      }
+      // Store token if returned
+      if (res.data?.token) {
+        apiClient.setToken(res.data.token);
       }
       // redirect to admin dashboard
       window.location.href = '/8369746981';
