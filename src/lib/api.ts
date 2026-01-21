@@ -128,6 +128,13 @@ class ApiClient {
     receiverId: string;
     content: string;
     type?: string;
+    mediaUrl?: string;
+    mediaMetadata?: {
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      path: string;
+    };
   }) {
     return this.request<Message>('/api/messages', {
       method: 'POST',
@@ -141,8 +148,71 @@ class ApiClient {
     });
   }
 
-  // File upload
+  // File upload - uses signed URL for direct upload to Supabase
+  async getUploadUrl(filename: string, conversationId: string) {
+    return this.request<{
+      signedUrl: string;
+      token: string;
+      path: string;
+      publicUrl: string;
+    }>('/api/files/get-upload-url', {
+      method: 'POST',
+      body: JSON.stringify({ filename, conversationId }),
+    });
+  }
+
   async uploadFile(
+    file: File,
+    conversationId: string,
+    receiverId: string,
+    type: 'image' | 'document' | 'voice'
+  ): Promise<ApiResponse<Message>> {
+    try {
+      // Step 1: Get signed upload URL from backend
+      const urlRes = await this.getUploadUrl(file.name, conversationId);
+      if (!urlRes.success || !urlRes.data) {
+        return { success: false, error: 'Failed to get upload URL' };
+      }
+
+      const { signedUrl, path, publicUrl } = urlRes.data;
+
+      // Step 2: Upload file directly to Supabase using the signed URL
+      const uploadResponse = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type,
+        },
+        body: file,
+      });
+
+      if (!uploadResponse.ok) {
+        return { success: false, error: 'Failed to upload file to storage' };
+      }
+
+      // Step 3: Send message with the file URL
+      const messageRes = await this.sendMessage({
+        conversationId,
+        receiverId,
+        content: '', // No text content for file messages
+        type,
+        mediaUrl: publicUrl,
+        mediaMetadata: {
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          path,
+        },
+      });
+
+      return messageRes;
+    } catch (error) {
+      console.error('File upload error:', error);
+      return { success: false, error: 'Failed to upload file' };
+    }
+  }
+
+  // Legacy file upload through backend (fallback)
+  async uploadFileLegacy(
     file: File,
     conversationId: string,
     receiverId: string,
