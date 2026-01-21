@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* WhatsApp Dark Theme Colors */
+  --bg-primary: #0b141a;
+  --bg-secondary: #202c33;
+  --bg-tertiary: #111b21;
+  --bg-hover: #2a3942;
+  --bg-message-sent: #005c4b;
+  --bg-message-received: #202c33;
+  --text-primary: #e9edef;
+  --text-secondary: #8696a0;
+  --text-tertiary: #667781;
+  --border-primary: #2a3942;
+  --accent-primary: #00a884;
+  --accent-hover: #06cf9c;
+  --icon-primary: #aebac1;
+  --icon-secondary: #8696a0;
+  --online-status: #25d366;
+  --tick-read: #53bdeb;
+  --tick-unread: #8696a0;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-[var(--bg-primary)] text-[var(--text-primary)];
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-[var(--text-primary)] font-semibold;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--bg-hover);
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: var(--icon-secondary);
+  }
+}
+
+/* Custom animations */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Message bubble styles */
+.message-sent {
+  @apply bg-[var(--bg-message-sent)] rounded-lg rounded-br-sm;
+}
+
+.message-received {
+  @apply bg-[var(--bg-message-received)] rounded-lg rounded-bl-sm;
+}
+
+/* Input focus styles */
+.input-chat {
+  @apply bg-[var(--bg-secondary)] text-[var(--text-primary)] border-none outline-none 
+         focus:ring-2 focus:ring-[var(--accent-primary)] rounded-lg px-4 py-2;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white 
+         rounded-lg px-4 py-2 transition-colors font-medium;
+}
+
+.btn-secondary {
+  @apply bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] 
+         rounded-lg px-4 py-2 transition-colors;
+}
+
+/* Chat list item hover */
+.chat-item-hover {
+  @apply hover:bg-[var(--bg-hover)] cursor-pointer transition-colors;
+}
+
+/* Status indicators */
+.status-online {
+  @apply w-2.5 h-2.5 rounded-full bg-[var(--online-status)] border-2 border-[var(--bg-secondary)];
+}
+
+.status-offline {
+  @apply w-2.5 h-2.5 rounded-full bg-[var(--text-tertiary)] border-2 border-[var(--bg-secondary)];
+}
+
+/* Emoji Picker Custom Styling */
+.EmojiPickerReact {
+  --epr-bg-color: var(--bg-secondary) !important;
+  --epr-category-label-bg-color: var(--bg-secondary) !important;
+  --epr-picker-border-color: var(--border-primary) !important;
+  --epr-search-input-bg-color: var(--bg-tertiary) !important;
+  --epr-search-input-text-color: var(--text-primary) !important;
+  --epr-hover-bg-color: var(--bg-hover) !important;
+  --epr-category-icon-active-color: var(--accent-primary) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+}

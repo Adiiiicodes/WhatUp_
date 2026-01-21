@@ -1,0 +1,6 @@
+// src/app/page.tsx
+import { AuthForm } from '@/components/auth/AuthForm';
+
+export default function HomePage() {
+  return <AuthForm />;
+}
