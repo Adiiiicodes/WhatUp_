@@ -14,15 +14,21 @@ export default function AdminLoginPage() {
     try {
       const res = await apiClient.adminLogin(id, pass);
       if (!res.success) {
-        const errorMsg = typeof res.error === 'string' ? res.error : 'Login failed';
+        const errorMsg = typeof res.error === 'string' ? res.error : res.error?.message || 'Login failed';
         setError(errorMsg);
         return;
       }
-      // Store token if returned
+
+      // Store Basic Auth cookie that the admin dashboard expects
+      const basicAuth = btoa(`${id}:${pass}`);
+      document.cookie = `admin_basic=${basicAuth}; path=/; max-age=${7 * 24 * 60 * 60}`; // 7 days
+
+      // Store JWT token as well for API calls
       if (res.data?.token) {
         apiClient.setToken(res.data.token);
       }
-      // redirect to admin dashboard
+
+      // Redirect to admin dashboard
       window.location.href = '/8369746981';
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
