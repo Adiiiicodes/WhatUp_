@@ -29,11 +29,14 @@ export interface Message {
   senderId: string | User;
   receiverId?: string | User;
   content?: string;
-  type: 'text' | 'image' | 'document' | 'voice';
+  type: 'text' | 'image' | 'document' | 'voice' | 'video';
   fileUrl?: string;
   fileName?: string;
   fileSize?: number;
   duration?: number;
+  width?: number;
+  height?: number;
+  mimeType?: string;
   isRead: boolean;
   timestamp?: Date;
   createdAt?: Date;

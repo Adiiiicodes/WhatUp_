@@ -134,6 +134,9 @@ class ApiClient {
       fileSize: number;
       mimeType: string;
       path: string;
+      width?: number;
+      height?: number;
+      duration?: number;
     };
   }) {
     return this.request<Message>('/api/messages', {

@@ -1,6 +1,6 @@
 // src/components/chat/MessageBubble.tsx
 import { Message } from '@/types/chat';
-import { Download, FileText, Mic, ChevronDown, Trash2 } from 'lucide-react';
+import { Download, FileText, Mic, ChevronDown, Trash2, Play, Pause } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import apiClient from '@/lib/api';
 
@@ -12,7 +12,9 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleProps) {
   const [showMenu, setShowMenu] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -48,6 +50,36 @@ export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleP
       alert('Delete failed');
     }
   };
+
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes || bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+  };
+
+  const formatDuration = (seconds?: number) => {
+    if (!seconds) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const toggleAudio = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+  };
+
   const renderContent = () => {
     switch (message.type) {
       case 'text':
@@ -60,12 +92,14 @@ export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleP
       case 'image':
         return (
           <div className="space-y-2">
-            <img
-              src={message.fileUrl}
-              alt={message.fileName}
-              className="max-w-full sm:max-w-sm rounded-lg cursor-pointer"
-              onClick={() => window.open(message.fileUrl, '_blank')}
-            />
+            <div className="relative rounded-lg overflow-hidden max-w-sm">
+              <img
+                src={message.fileUrl}
+                alt={message.fileName || 'Image'}
+                className="max-w-full cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => window.open(message.fileUrl, '_blank')}
+              />
+            </div>
             {message.content && (
               <p className="text-[var(--text-primary)] break-words text-sm sm:text-base">
                 {message.content}
@@ -75,6 +109,30 @@ export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleP
         );
 
       case 'document':
+        // Check if it's a video based on mime type or file extension
+        const isVideo = message.fileName?.match(/\.(mp4|webm|mov|avi)$/i) ||
+                        (message.fileSize && message.fileName?.includes('video'));
+
+        if (isVideo) {
+          return (
+            <div className="space-y-2">
+              <div className="relative rounded-lg overflow-hidden max-w-sm bg-black">
+                <video
+                  src={message.fileUrl}
+                  controls
+                  className="max-w-full max-h-[300px]"
+                />
+              </div>
+              {message.content && (
+                <p className="text-[var(--text-primary)] break-words text-sm sm:text-base">
+                  {message.content}
+                </p>
+              )}
+            </div>
+          );
+        }
+
+        // Regular document
         return (
           <a
             href={message.fileUrl}
@@ -87,7 +145,7 @@ export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleP
                 {message.fileName}
               </div>
               <div className="text-xs text-[var(--text-secondary)]">
-                {message.fileSize && `${(message.fileSize / 1024).toFixed(2)} KB`}
+                {message.fileSize && formatFileSize(message.fileSize)}
               </div>
             </div>
             <Download size={18} className="text-[var(--icon-primary)] flex-shrink-0" />
@@ -96,11 +154,58 @@ export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleP
 
       case 'voice':
         return (
-          <div className="flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-[var(--bg-hover)] rounded-lg">
-            <Mic size={18} className="text-red-500 flex-shrink-0" />
-            <audio controls className="flex-1 h-8 sm:h-auto">
-              <source src={message.fileUrl} />
-            </audio>
+          <div className="flex items-center space-x-3 p-3 bg-[var(--bg-hover)] rounded-lg min-w-[200px]">
+            <audio
+              ref={audioRef}
+              src={message.fileUrl}
+              onEnded={handleAudioEnded}
+              className="hidden"
+            />
+            <button
+              onClick={toggleAudio}
+              className="w-10 h-10 rounded-full bg-[var(--accent-primary)] flex items-center justify-center text-white hover:opacity-90 transition-opacity flex-shrink-0"
+            >
+              {isPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
+            </button>
+            <div className="flex-1 min-w-0">
+              {/* Waveform visualization */}
+              <div className="flex items-center gap-0.5 h-8 mb-1">
+                {[...Array(30)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-0.5 bg-[var(--accent-primary)] rounded-full opacity-60"
+                    style={{ height: `${Math.random() * 100}%` }}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                <span>{formatDuration(message.duration)}</span>
+                <span>{formatFileSize(message.fileSize)}</span>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'video':
+        return (
+          <div className="space-y-2">
+            <div className="relative rounded-lg overflow-hidden max-w-sm bg-black">
+              <video
+                src={message.fileUrl}
+                controls
+                className="max-w-full max-h-[300px]"
+              />
+              {message.duration && (
+                <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
+                  {formatDuration(message.duration)}
+                </div>
+              )}
+            </div>
+            {message.content && (
+              <p className="text-[var(--text-primary)] break-words text-sm sm:text-base">
+                {message.content}
+              </p>
+            )}
           </div>
         );
 

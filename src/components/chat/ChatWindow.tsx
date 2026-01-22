@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { User, Conversation, Message } from '@/types/chat';
-import { Send, Paperclip, Smile, MoreVertical, Image, FileText, Mic, ArrowLeft } from 'lucide-react';
+import { Send, Paperclip, Smile, MoreVertical, Image, FileText, Mic, ArrowLeft, X, Play, Square } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import dynamic from 'next/dynamic';
 import type { EmojiClickData } from 'emoji-picker-react';
@@ -23,6 +23,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -31,6 +32,21 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const previousMessagesLengthRef = useRef(0);
   const shouldAutoScrollRef = useRef(true);
+
+  // Media upload state
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploadedMediaUrl, setUploadedMediaUrl] = useState<string | null>(null);
+  const [uploadedMediaType, setUploadedMediaType] = useState<'image' | 'video' | 'audio' | 'file' | null>(null);
+  const [uploadedMediaMetadata, setUploadedMediaMetadata] = useState<Record<string, unknown> | null>(null);
+
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<number | null>(null);
+  const uploadPromiseRef = useRef<Promise<void> | null>(null);
 
   const onEmojiClick = (emojiData: EmojiClickData) => {
     setNewMessage(prev => prev + emojiData.emoji);
@@ -99,7 +115,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
   // Listen for message deletion events (triggered by MessageBubble)
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = () => {
       // refresh messages when a message is deleted
       fetchMessages();
     };
@@ -154,21 +170,69 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || loading) return;
+    if ((!newMessage.trim() && !uploadedMediaUrl && !selectedFile) || loading) return;
 
     setLoading(true);
     try {
+      // If there's a selected file but not yet uploaded, wait for upload
+      if (!uploadedMediaUrl && selectedFile) {
+        if (uploadPromiseRef.current) {
+          await uploadPromiseRef.current;
+        } else {
+          await uploadMedia(selectedFile);
+        }
+      }
+
+      // Determine message type
+      let messageType: 'text' | 'image' | 'document' | 'voice' = 'text';
+      if (uploadedMediaType === 'image') messageType = 'image';
+      else if (uploadedMediaType === 'audio') messageType = 'voice';
+      else if (uploadedMediaType === 'video' || uploadedMediaType === 'file') messageType = 'document';
+
+      // Build media metadata object
+      let mediaMetadataPayload: {
+        fileName: string;
+        fileSize: number;
+        mimeType: string;
+        path: string;
+        width?: number;
+        height?: number;
+        duration?: number;
+      } | undefined;
+
+      if (uploadedMediaMetadata) {
+        mediaMetadataPayload = {
+          fileName: (uploadedMediaMetadata.fileName as string) || '',
+          fileSize: (uploadedMediaMetadata.fileSize as number) || 0,
+          mimeType: (uploadedMediaMetadata.mimeType as string) || '',
+          path: (uploadedMediaMetadata.path as string) || '',
+        };
+        if (uploadedMediaMetadata.width) {
+          mediaMetadataPayload.width = uploadedMediaMetadata.width as number;
+        }
+        if (uploadedMediaMetadata.height) {
+          mediaMetadataPayload.height = uploadedMediaMetadata.height as number;
+        }
+        if (uploadedMediaMetadata.duration) {
+          mediaMetadataPayload.duration = uploadedMediaMetadata.duration as number;
+        }
+      }
+
       const res = await apiClient.sendMessage({
         conversationId: conversation._id,
         receiverId: otherUser._id,
-        content: newMessage,
-        type: 'text',
+        content: newMessage || '', // Caption for media or text content
+        type: messageType,
+        mediaUrl: uploadedMediaUrl || undefined,
+        mediaMetadata: mediaMetadataPayload,
       });
 
       if (res.success && res.data) {
         setMessages([...messages, res.data]);
         setNewMessage('');
-        // Force scroll to bottom when user sends a message
+        // Clear media state
+        handleCancelUpload();
+        // Force scroll to bottom
         shouldAutoScrollRef.current = true;
       }
     } catch (error) {
@@ -181,20 +245,232 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const handleFileUpload = async (file: File, type: 'image' | 'document' | 'voice') => {
     if (!file) return;
 
-    setUploading(true);
+    // Set selected file and create preview
+    setSelectedFile(file);
     setShowAttachMenu(false);
 
-    try {
-      const res = await apiClient.uploadFile(file, conversation._id, otherUser._id, type);
-      if (res.success && res.data) {
-        setMessages([...messages, res.data]);
-        // Force scroll to bottom when user uploads a file
-        shouldAutoScrollRef.current = true;
+    // Create preview URL for images/videos/audio
+    const fileType = file.type.split('/')[0];
+    if (fileType === 'image' || fileType === 'video' || fileType === 'audio') {
+      const preview = URL.createObjectURL(file);
+      setPreviewUrl(preview);
+    }
+
+    // Start upload process
+    await uploadMedia(file, type);
+  };
+
+  // Upload media using presigned URL
+  const uploadMedia = async (file: File, type?: 'image' | 'document' | 'voice') => {
+    setUploading(true);
+    setUploadProgress(0);
+
+    const uploadPromise = (async () => {
+      try {
+        // Step 1: Get signed URL from backend
+        const urlRes = await apiClient.getUploadUrl(file.name, conversation._id);
+        if (!urlRes.success || !urlRes.data) {
+          throw new Error('Failed to get upload URL');
+        }
+
+        const { signedUrl, path, publicUrl } = urlRes.data;
+
+        // Step 2: Upload file directly to Supabase
+        const uploadResponse = await fetch(signedUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type,
+          },
+          body: file,
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload file to storage');
+        }
+
+        // Step 3: Determine media type
+        const fileCategory = file.type.split('/')[0];
+        let mediaType: 'image' | 'video' | 'audio' | 'file' = 'file';
+        if (type === 'image' || fileCategory === 'image') mediaType = 'image';
+        else if (fileCategory === 'video') mediaType = 'video';
+        else if (type === 'voice' || fileCategory === 'audio') mediaType = 'audio';
+
+        // Step 4: Get metadata
+        const metadata: Record<string, unknown> = {
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          path,
+        };
+
+        // Get dimensions for images
+        if (mediaType === 'image') {
+          const dimensions = await getImageDimensions(file);
+          metadata.width = dimensions.width;
+          metadata.height = dimensions.height;
+        }
+
+        // Get duration for videos
+        if (mediaType === 'video') {
+          const duration = await getVideoDuration(file);
+          metadata.duration = duration;
+        }
+
+        // Get duration for audio
+        if (mediaType === 'audio') {
+          const duration = await getAudioDuration(file);
+          metadata.duration = duration;
+        }
+
+        // Step 5: Store media info for sending
+        setUploadedMediaUrl(publicUrl);
+        setUploadedMediaType(mediaType);
+        setUploadedMediaMetadata(metadata);
+        setUploadProgress(100);
+
+        console.log('[ChatWindow] Media uploaded:', { url: publicUrl, type: mediaType, metadata });
+      } catch (error) {
+        console.error('[ChatWindow] Upload failed:', error);
+        alert('Failed to upload file. Please try again.');
+        handleCancelUpload();
+      } finally {
+        setUploading(false);
+        uploadPromiseRef.current = null;
       }
-    } catch (error) {
-      console.error('Error uploading file:', error);
-    } finally {
-      setUploading(false);
+    })();
+
+    uploadPromiseRef.current = uploadPromise;
+    return uploadPromise;
+  };
+
+  // Helper: Get image dimensions
+  const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
+    return new Promise((resolve) => {
+      const img = document.createElement('img');
+      img.onload = () => {
+        resolve({ width: img.width, height: img.height });
+        URL.revokeObjectURL(img.src);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  // Helper: Get video duration
+  const getVideoDuration = (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.onloadedmetadata = () => {
+        resolve(Math.floor(video.duration));
+        URL.revokeObjectURL(video.src);
+      };
+      video.src = URL.createObjectURL(file);
+    });
+  };
+
+  // Helper: Get audio duration
+  const getAudioDuration = (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      const audio = document.createElement('audio');
+      audio.onloadedmetadata = () => {
+        resolve(Math.floor(audio.duration));
+        URL.revokeObjectURL(audio.src);
+      };
+      audio.src = URL.createObjectURL(file);
+    });
+  };
+
+  // Cancel upload
+  const handleCancelUpload = () => {
+    setSelectedFile(null);
+    setUploadedMediaUrl(null);
+    setUploadedMediaType(null);
+    setUploadedMediaMetadata(null);
+    setPreviewUrl(null);
+    setUploadProgress(0);
+    setUploading(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Format file size
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes || bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+  };
+
+  // Voice recording functions
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      recordedChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+        const file = new File([blob], `${Date.now()}_voice.webm`, { type: blob.type });
+        stream.getTracks().forEach((t) => t.stop());
+
+        // Create local preview
+        const preview = URL.createObjectURL(blob);
+        setSelectedFile(file);
+        setPreviewUrl(preview);
+        setUploadedMediaType('audio');
+        const duration = await getAudioDuration(file);
+        setUploadedMediaMetadata({ fileSize: file.size, mimeType: file.type, duration, fileName: file.name });
+
+        // Start upload in background
+        uploadMedia(file, 'voice').catch((err) => {
+          console.error('[ChatWindow] Background upload failed', err);
+        });
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingIntervalRef.current = window.setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000) as unknown as number;
+    } catch (err) {
+      console.error('[ChatWindow] startRecording failed', err);
+      alert('Unable to access microphone.');
+    }
+  };
+
+  const stopRecording = () => {
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state !== 'inactive') {
+      mr.stop();
+    }
+    setIsRecording(false);
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+  };
+
+  const cancelRecording = () => {
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state !== 'inactive') {
+      try {
+        mr.stop();
+      } catch (e) {
+        console.log('[ChatWindow] cancelRecording stop error', e);
+      }
+    }
+    recordedChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
     }
   };
 
@@ -275,13 +551,116 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Upload Progress */}
-      {uploading && (
-        <div className="px-3 sm:px-4 py-2 bg-[var(--bg-secondary)] border-t border-[var(--border-primary)]">
-          <div className="flex items-center space-x-2 text-[var(--text-secondary)]">
-            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-[var(--accent-primary)]"></div>
-            <span className="text-xs sm:text-sm">Uploading...</span>
-          </div>
+      {/* Media Preview & Upload Progress */}
+      {(previewUrl || uploading || isRecording) && (
+        <div className="px-3 sm:px-4 py-3 bg-[var(--bg-secondary)] border-t border-[var(--border-primary)]">
+          {isRecording ? (
+            <div className="flex items-center gap-4 bg-[var(--bg-tertiary)] p-3 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                  <Mic size={18} className="text-white" />
+                </div>
+                <div>
+                  <div className="text-[var(--text-primary)] font-medium">
+                    {Math.floor(recordingSeconds / 60).toString().padStart(2, '0')}:
+                    {(recordingSeconds % 60).toString().padStart(2, '0')}
+                  </div>
+                  <div className="text-xs text-[var(--text-secondary)]">Recording...</div>
+                </div>
+              </div>
+              <div className="ml-auto flex gap-2">
+                <button
+                  onClick={stopRecording}
+                  className="px-3 py-1.5 bg-green-500 hover:bg-green-600 rounded-lg text-white text-sm flex items-center gap-1"
+                >
+                  <Square size={14} /> Done
+                </button>
+                <button
+                  onClick={cancelRecording}
+                  className="px-3 py-1.5 bg-red-500 hover:bg-red-600 rounded-lg text-white text-sm flex items-center gap-1"
+                >
+                  <X size={14} /> Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            previewUrl && (
+              <div className="relative inline-block">
+                {/* Image Preview */}
+                {uploadedMediaType === 'image' && (
+                  <img
+                    src={previewUrl}
+                    alt="Preview"
+                    className="max-h-32 rounded-lg object-contain"
+                  />
+                )}
+                {/* Video Preview */}
+                {uploadedMediaType === 'video' && (
+                  <video
+                    src={previewUrl}
+                    className="max-h-32 rounded-lg"
+                    controls
+                  />
+                )}
+                {/* Audio Preview */}
+                {uploadedMediaType === 'audio' && (
+                  <div className="w-full bg-[var(--bg-tertiary)] p-3 rounded-lg flex items-center gap-4">
+                    <div className="w-12 h-12 bg-[var(--accent-primary)] rounded-full flex items-center justify-center">
+                      <Mic size={20} className="text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="text-[var(--text-primary)] truncate font-medium">
+                          {selectedFile?.name || 'voice.webm'}
+                        </div>
+                        <div className="text-xs text-[var(--text-secondary)] ml-2">
+                          • {formatFileSize(selectedFile?.size)}
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <audio src={previewUrl} controls className="w-full h-8" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {/* File Preview */}
+                {uploadedMediaType === 'file' && (
+                  <div className="flex items-center gap-3 p-3 bg-[var(--bg-tertiary)] rounded-lg">
+                    <FileText size={28} className="text-blue-500 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[var(--text-primary)] truncate">{selectedFile?.name}</div>
+                      <div className="text-xs text-[var(--text-secondary)]">
+                        {formatFileSize(selectedFile?.size)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {/* Cancel Button */}
+                <button
+                  onClick={handleCancelUpload}
+                  className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )
+          )}
+
+          {/* Upload Progress */}
+          {uploading && (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-[var(--accent-primary)]"></div>
+                <span>Uploading {selectedFile?.name}...</span>
+              </div>
+              <div className="w-full bg-[var(--bg-hover)] rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-full bg-[var(--accent-primary)] transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -310,7 +689,15 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => triggerFileInput('.pdf,.doc,.docx,.txt', 'document')}
+                  onClick={() => triggerFileInput('video/*', 'document')}
+                  className="flex items-center space-x-2 sm:space-x-3 w-full px-3 sm:px-4 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] touch-manipulation"
+                >
+                  <Play size={20} className="text-purple-500 flex-shrink-0" />
+                  <span className="text-sm sm:text-base">Video</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => triggerFileInput('.pdf,.doc,.docx,.txt,.xls,.xlsx', 'document')}
                   className="flex items-center space-x-2 sm:space-x-3 w-full px-3 sm:px-4 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] touch-manipulation"
                 >
                   <FileText size={20} className="text-blue-500 flex-shrink-0" />
@@ -322,7 +709,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
                   className="flex items-center space-x-2 sm:space-x-3 w-full px-3 sm:px-4 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] touch-manipulation"
                 >
                   <Mic size={20} className="text-red-500 flex-shrink-0" />
-                  <span className="text-sm sm:text-base">Audio</span>
+                  <span className="text-sm sm:text-base">Audio File</span>
                 </button>
               </div>
             )}
@@ -368,13 +755,25 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
           <button
             type="submit"
-            disabled={!newMessage.trim() || loading || uploading}
+            disabled={(!newMessage.trim() && !uploadedMediaUrl && !selectedFile) || loading || uploading}
             className="p-2 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
             aria-label="Send message"
           >
             <Send size={20} className="text-white" />
           </button>
         </form>
+
+        {/* Voice Record Button - shows when no text/media */}
+        {!newMessage.trim() && !uploadedMediaUrl && !selectedFile && !isRecording && (
+          <button
+            type="button"
+            onClick={startRecording}
+            className="ml-2 p-2 hover:bg-[var(--bg-hover)] rounded-full transition-colors touch-manipulation"
+            aria-label="Record voice message"
+          >
+            <Mic size={20} className="text-[var(--icon-primary)]" />
+          </button>
+        )}
       </div>
     </div>
   );
