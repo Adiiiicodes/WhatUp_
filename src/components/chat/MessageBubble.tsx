@@ -1,6 +1,6 @@
 // src/components/chat/MessageBubble.tsx
 import { Message } from '@/types/chat';
-import { Download, FileText, Mic, ChevronDown, Trash2, Play, Pause } from 'lucide-react';
+import { Download, FileText, Mic, ChevronDown, Trash2, Play, Pause, CheckCheck, Check, MoreVertical } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import apiClient from '@/lib/api';
 
@@ -215,16 +215,21 @@ export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleP
   };
 
   return (
-    <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} animate-fade-in group`}>
-      <div className="relative flex items-start gap-1">
+    <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300 group px-1 py-0.5`}>
+      <div className={`relative flex items-end max-w-[85%] sm:max-w-[70%] ${isOwn ? 'flex-row-reverse' : 'flex-row gap-2'}`}>
+
+        {/* Message Bubble */}
         <div
-          className={`max-w-[85%] sm:max-w-[75%] md:max-w-md px-3 py-2 sm:px-4 sm:py-2 rounded-lg ${
-            isOwn ? 'message-sent' : 'message-received'
+          className={`relative px-3 py-2 shadow-sm border ${
+            isOwn 
+              ? 'bg-[var(--accent-primary)] text-white rounded-2xl rounded-tr-sm border-[var(--accent-primary)]' 
+              : 'bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-2xl rounded-tl-sm border-[var(--border-primary)]'
           }`}
         >
           {renderContent()}
-          <div className={`text-xs mt-1 flex items-center justify-between gap-2 ${
-            isOwn ? 'text-[var(--text-primary)]/70' : 'text-[var(--text-secondary)]'
+
+          <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 select-none ${
+            isOwn ? 'text-white/70' : 'text-[var(--text-secondary)]'
           }`}>
             <span>
               {new Date(message.createdAt || message.timestamp || Date.now()).toLocaleTimeString([], {
@@ -233,47 +238,37 @@ export function MessageBubble({ message, isOwn, conversationId }: MessageBubbleP
               })}
             </span>
             {isOwn && (
-              <span className="flex items-center ml-1">
-                <svg
-                  width="16"
-                  height="15"
-                  viewBox="0 0 16 15"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className={message.isRead ? 'text-[var(--tick-read)]' : 'text-[var(--tick-unread)]'}
-                >
-                  <path
-                    d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88a.32.32 0 0 1-.484.033l-.358-.325a.32.32 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.54l1.32 1.266a.32.32 0 0 0 .484-.034l6.272-8.048a.366.366 0 0 0-.064-.512zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88a.32.32 0 0 1-.484.033L1.891 7.769a.366.366 0 0 0-.515.006l-.423.433a.364.364 0 0 0 .006.514l3.258 3.185c.143.14.361.125.484-.033l6.272-8.048a.365.365 0 0 0-.063-.51z"
-                    fill="currentColor"
-                  />
-                </svg>
+              <span className={message.isRead ? 'text-blue-200' : 'text-white/60'}>
+                 <CheckCheck size={14} strokeWidth={1.5} />
               </span>
             )}
           </div>
         </div>
 
-        {isOwn && (
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-[var(--bg-hover)] rounded-full touch-manipulation"
-              aria-label="message options"
-            >
-              <ChevronDown size={16} className="text-[var(--text-secondary)]" />
-            </button>
+        {/* Action Menu (Only for own messages for now, or could handle delete for others locally if allowed) */}
+        <div className={`relative mb-2 opacity-0 group-hover:opacity-100 transition-opacity ${isOwn ? 'mr-1' : 'ml-1'}`} ref={menuRef}>
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-1 hover:bg-[var(--bg-hover)] rounded-full transition-colors text-[var(--text-secondary)]"
+            aria-label="message options"
+          >
+            <MoreVertical size={14} />
+          </button>
             {showMenu && (
-              <div className="absolute right-0 top-full mt-1 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg shadow-xl min-w-[180px] py-1 z-50">
-                <button 
+            <div className={`absolute bottom-full mb-2 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl shadow-lg min-w-[140px] py-1 z-50 overflow-hidden text-left ${isOwn ? 'right-0' : 'left-0'}`}>
+              {isOwn && (
+                <button
                   onClick={handleDelete} 
-                  className="flex items-center space-x-3 w-full px-4 py-2.5 text-sm text-red-500 hover:bg-[var(--bg-hover)] transition-colors touch-manipulation"
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
                 >
-                  <Trash2 size={16} />
-                  <span>Delete for everyone</span>
+                  <Trash2 size={14} />
+                  <span>Delete</span>
                 </button>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+               {/* Add more options like copy, reply here later */}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

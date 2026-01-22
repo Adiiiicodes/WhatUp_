@@ -490,50 +490,54 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   return (
     <div className="flex-1 flex flex-col bg-[var(--bg-primary)] h-screen">
       {/* Chat Header */}
-      <div className="bg-[var(--bg-tertiary)] p-3 sm:p-4 flex items-center justify-between border-b border-[var(--border-primary)]">
-        <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0">
+      <div className="h-[70px] px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] backdrop-blur-sm z-10 shrink-0">
+        <div className="flex items-center gap-4 flex-1 min-w-0">
           {onBack && (
             <button
               onClick={onBack}
               className="lg:hidden p-2 hover:bg-[var(--bg-hover)] rounded-full transition-colors flex-shrink-0"
               aria-label="Back to chats"
             >
-              <ArrowLeft size={20} className="text-[var(--icon-primary)]" />
+              <ArrowLeft size={20} className="text-[var(--text-secondary)]" strokeWidth={1.5} />
             </button>
           )}
           <div className="relative flex-shrink-0">
-            <div className="w-10 h-10 rounded-full bg-[var(--accent-primary)] flex items-center justify-center text-white font-semibold">
+             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-purple-600 flex items-center justify-center text-white font-semibold shadow-sm">
               {otherUser?.name ? otherUser.name.charAt(0).toUpperCase() : '?'}
             </div>
             {otherUser?.status === 'online' && (
-              <div className="status-online absolute bottom-0 right-0"></div>
+              <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-[var(--bg-secondary)] rounded-full shadow-sm"></span>
             )}
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[var(--text-primary)] font-medium truncate">
+          <div className="flex flex-col">
+            <h3 className="text-[var(--text-primary)] font-semibold text-base leading-tight truncate">
               {otherUser?.name ?? 'Unknown'}
-            </div>
-            <div className="text-xs text-[var(--text-secondary)] truncate">
+            </h3>
+            <span className="text-xs text-[var(--text-secondary)] font-medium truncate">
               {otherUser?.status === 'online' ? 'Online' : 'Offline'}
-            </div>
+            </span>
           </div>
         </div>
-        <button className="p-2 hover:bg-[var(--bg-hover)] rounded-full transition-colors flex-shrink-0">
-          <MoreVertical size={20} className="text-[var(--icon-primary)]" />
-        </button>
+         <div className="flex items-center gap-2">
+          {/* Add more header actions if needed, for now just the menu */}
+          <button className="p-2.5 hover:bg-[var(--bg-hover)] rounded-full transition-colors flex-shrink-0 text-[var(--text-secondary)]">
+            <MoreVertical size={20} strokeWidth={1.5} />
+          </button>
+        </div>
       </div>
 
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 scrollbar-thin bg-[url('/chat-bg.png')] bg-repeat"
+        className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[var(--bg-primary)] scrollbar-thin"
       >
         {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-[var(--text-tertiary)]">
-              <p>No messages yet</p>
-              <p className="text-sm mt-2">Start the conversation!</p>
+          <div className="flex flex-col items-center justify-center h-full text-[var(--text-tertiary)] animate-in fade-in duration-500">
+            <div className="w-16 h-16 rounded-2xl bg-[var(--bg-secondary)] flex items-center justify-center mb-4">
+               <Smile size={32} strokeWidth={1.5} />
             </div>
+            <p className="font-medium">No messages yet</p>
+            <p className="text-sm mt-1">Say hello to start the conversation!</p>
           </div>
         ) : (
           messages.map((message) => {
@@ -665,115 +669,118 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       )}
 
       {/* Message Input */}
-      <div className="bg-[var(--bg-tertiary)] p-2 sm:p-4 border-t border-[var(--border-primary)]">
-        <form onSubmit={handleSendMessage} className="flex items-center space-x-1 sm:space-x-2">
-          <div className="relative">
+      <div className="p-4 sm:p-6 bg-[var(--bg-secondary)] border-t border-[var(--border-primary)]">
+        <form onSubmit={handleSendMessage} className="relative flex items-end gap-2 bg-[var(--bg-tertiary)] p-2 rounded-2xl border border-[var(--border-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-primary)]/20 focus-within:border-[var(--accent-primary)] transition-all">
+          <div className="relative flex-shrink-0">
             <button
               type="button"
               onClick={() => setShowAttachMenu(!showAttachMenu)}
-              className="p-2 hover:bg-[var(--bg-hover)] rounded-full transition-colors touch-manipulation"
-              aria-label="Attach file"
+              className={`p-2.5 rounded-xl transition-colors ${showAttachMenu ? 'bg-[var(--accent-primary)] text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'}`}
             >
-              <Paperclip size={20} className="text-[var(--icon-primary)]" />
+              <Paperclip size={20} className="rotate-45" strokeWidth={1.5} />
             </button>
             
             {showAttachMenu && (
-              <div className="absolute bottom-full left-0 mb-2 bg-[var(--bg-secondary)] rounded-lg shadow-lg border border-[var(--border-primary)] p-2 space-y-1 min-w-[160px]">
+              <div className="absolute bottom-full left-0 mb-3 bg-[var(--bg-secondary)] rounded-xl shadow-xl border border-[var(--border-primary)] p-2 min-w-[180px] animate-in slide-in-from-bottom-2 duration-200 z-50">
+                <div className="grid grid-cols-1 gap-1">
                 <button
                   type="button"
                   onClick={() => triggerFileInput('image/*', 'image')}
-                  className="flex items-center space-x-2 sm:space-x-3 w-full px-3 sm:px-4 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] touch-manipulation"
+                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
                 >
-                  <Image size={20} className="text-[var(--icon-secondary)] flex-shrink-0" />
-                  <span className="text-sm sm:text-base">Image</span>
+                  <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center">
+                    <Image size={16} className="text-purple-500" />
+                  </div>
+                  <span className="text-sm font-medium">Image</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => triggerFileInput('video/*', 'document')}
-                  className="flex items-center space-x-2 sm:space-x-3 w-full px-3 sm:px-4 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] touch-manipulation"
+                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
                 >
-                  <Play size={20} className="text-purple-500 flex-shrink-0" />
-                  <span className="text-sm sm:text-base">Video</span>
+                  <div className="w-8 h-8 rounded-full bg-pink-500/10 flex items-center justify-center">
+                    <Play size={16} className="text-pink-500" />
+                  </div>
+                  <span className="text-sm font-medium">Video</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => triggerFileInput('.pdf,.doc,.docx,.txt,.xls,.xlsx', 'document')}
-                  className="flex items-center space-x-2 sm:space-x-3 w-full px-3 sm:px-4 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] touch-manipulation"
+                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
                 >
-                  <FileText size={20} className="text-blue-500 flex-shrink-0" />
-                  <span className="text-sm sm:text-base">Document</span>
+                  <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center">
+                     <FileText size={16} className="text-blue-500" />
+                  </div>
+                  <span className="text-sm font-medium">Document</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => triggerFileInput('audio/*', 'voice')}
-                  className="flex items-center space-x-2 sm:space-x-3 w-full px-3 sm:px-4 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] touch-manipulation"
+                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
                 >
-                  <Mic size={20} className="text-red-500 flex-shrink-0" />
-                  <span className="text-sm sm:text-base">Audio File</span>
+                  <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center">
+                    <Mic size={16} className="text-red-500" />
+                  </div>
+                  <span className="text-sm font-medium">Audio</span>
                 </button>
+                </div>
               </div>
             )}
           </div>
 
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="hidden"
-          />
+          <input type="file" ref={fileInputRef} className="hidden" />
 
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message"
-            className="flex-1 bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 outline-none focus:ring-2 focus:ring-[var(--accent-primary)] text-sm sm:text-base"
+            placeholder="Type a message..."
+            className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] py-3 px-2 outline-none text-base placeholder:text-[var(--text-tertiary)]"
             disabled={loading || uploading}
           />
 
-          <div className="relative" ref={emojiPickerRef}>
-            <button
-              type="button"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="p-2 hover:bg-[var(--bg-hover)] rounded-full transition-colors touch-manipulation"
-              aria-label="Add emoji"
-            >
-              <Smile size={20} className="text-[var(--icon-primary)]" />
-            </button>
-            {showEmojiPicker && (
-              <div className="absolute bottom-full right-0 mb-2 z-50">
-                <EmojiPicker
-                  onEmojiClick={onEmojiClick}
-                  theme={Theme.DARK}
-                  width={300}
-                  height={400}
-                  searchPlaceHolder="Search emoji"
-                  previewConfig={{ showPreview: false }}
-                />
-              </div>
+          <div className="flex items-center gap-1 pb-1">
+             <div className="relative" ref={emojiPickerRef}>
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className={`p-2.5 rounded-xl transition-colors ${showEmojiPicker ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'}`}
+              >
+                <Smile size={20} strokeWidth={1.5} />
+              </button>
+              {showEmojiPicker && (
+                <div className="absolute bottom-full right-0 mb-4 z-50 shadow-2xl rounded-2xl overflow-hidden border border-[var(--border-primary)]">
+                  <EmojiPicker
+                    onEmojiClick={onEmojiClick}
+                    theme={Theme.DARK}
+                    width={320}
+                    height={400}
+                    searchPlaceHolder="Search emoji"
+                    previewConfig={{ showPreview: false }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {!newMessage.trim() && !uploadedMediaUrl && !selectedFile && !isRecording ? (
+               <button
+                type="button"
+                onClick={startRecording}
+                className="p-2.5 hover:bg-[var(--bg-hover)] rounded-xl transition-colors text-[var(--text-secondary)] hover:text-[var(--accent-primary)]"
+              >
+                <Mic size={20} strokeWidth={1.5} />
+              </button>
+            ) : (
+               <button
+                type="submit"
+                disabled={(!newMessage.trim() && !uploadedMediaUrl && !selectedFile) || loading || uploading}
+                className="p-2.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Send size={18} className="text-white ml-0.5" strokeWidth={2} />
+              </button>
             )}
           </div>
-
-          <button
-            type="submit"
-            disabled={(!newMessage.trim() && !uploadedMediaUrl && !selectedFile) || loading || uploading}
-            className="p-2 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
-            aria-label="Send message"
-          >
-            <Send size={20} className="text-white" />
-          </button>
         </form>
-
-        {/* Voice Record Button - shows when no text/media */}
-        {!newMessage.trim() && !uploadedMediaUrl && !selectedFile && !isRecording && (
-          <button
-            type="button"
-            onClick={startRecording}
-            className="ml-2 p-2 hover:bg-[var(--bg-hover)] rounded-full transition-colors touch-manipulation"
-            aria-label="Record voice message"
-          >
-            <Mic size={20} className="text-[var(--icon-primary)]" />
-          </button>
-        )}
       </div>
     </div>
   );
