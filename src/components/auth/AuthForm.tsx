@@ -203,12 +203,12 @@ export function AuthForm() {
             {mode !== 'set-password' && (
               <div>
                 <a
-                  href="/api/auth/google/redirect"
+                  href={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/auth/google/redirect`}
                   className="inline-flex items-center justify-center w-full border border-[var(--border-primary)] rounded-lg py-2 sm:py-2.5 px-4 hover:bg-[var(--bg-hover)] transition-colors text-sm"
-                  aria-label="Sign in with Google"
+                  aria-label={mode === 'signup' ? 'Sign up with Google' : 'Sign in with Google'}
                 >
                   <SiGoogle className="w-5 h-5 mr-2" />
-                  Sign in with Google
+                  {mode === 'signup' ? 'Sign up with Google' : 'Sign in with Google'}
                 </a>
               </div>
             )}
