@@ -1,6 +1,6 @@
 // src/components/chat/MessageBubble.tsx
 import { Message } from '@/types/chat';
-import { Download, FileText, Trash2, CheckCheck, Check, MoreVertical } from 'lucide-react';
+import { Download, FileText, Trash2, CheckCheck, Check, MoreVertical, Copy, Reply, Forward } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import apiClient from '@/lib/api';
 import { VoiceMessageBubble } from './VoiceMessageBubble';
@@ -10,24 +10,58 @@ interface MessageBubbleProps {
   isOwn: boolean;
   conversationId?: string;
   onImageClick?: (src: string, fileName?: string, fileSize?: number) => void;
+  onReply?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, isOwn, conversationId, onImageClick }: MessageBubbleProps) {
+export function MessageBubble({ message, isOwn, conversationId, onImageClick, onReply }: MessageBubbleProps) {
   const [showMenu, setShowMenu] = useState(false);
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
+  const [showTimestamp, setShowTimestamp] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowMenu(false);
       }
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setShowContextMenu(false);
+      }
     };
 
-    if (showMenu) {
+    if (showMenu || showContextMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showMenu]);
+  }, [showMenu, showContextMenu]);
+
+  // Handle right-click context menu
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+    setShowMenu(false);
+  };
+
+  // Copy message content to clipboard
+  const handleCopy = async () => {
+    setShowMenu(false);
+    setShowContextMenu(false);
+    try {
+      await navigator.clipboard.writeText(message.content || '');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Handle reply
+  const handleReply = () => {
+    setShowMenu(false);
+    setShowContextMenu(false);
+    onReply?.(message);
+  };
 
   const handleDelete = async () => {
     setShowMenu(false);
@@ -192,12 +226,19 @@ export function MessageBubble({ message, isOwn, conversationId, onImageClick }: 
 
         {/* Message Bubble */}
         <div
-          className={`relative px-3 py-2 shadow-sm border ${
+          onContextMenu={handleContextMenu}
+          onClick={() => setShowTimestamp(!showTimestamp)}
+          className={`relative px-3 py-2 shadow-sm border cursor-pointer select-none ${
             isOwn 
-              ? 'bg-[var(--accent-primary)] text-white rounded-2xl rounded-tr-sm border-[var(--accent-primary)]' 
+              ? 'bg-gradient-to-br from-[var(--accent-primary)] to-[#006a5c] text-white rounded-2xl rounded-tr-sm border-[var(--accent-primary)]' 
               : 'bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-2xl rounded-tl-sm border-[var(--border-primary)]'
           }`}
         >
+          {/* Edited indicator */}
+          {message.isEdited && (
+            <span className="text-[10px] text-[var(--text-secondary)] italic mr-1">(edited)</span>
+          )}
+          
           {renderContent()}
 
           <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 select-none ${
@@ -219,9 +260,16 @@ export function MessageBubble({ message, isOwn, conversationId, onImageClick }: 
               </span>
             )}
           </div>
+          
+          {/* Full timestamp on hover/click */}
+          {showTimestamp && (
+            <div className={`absolute -bottom-6 text-[10px] text-[var(--text-secondary)] whitespace-nowrap z-10 ${isOwn ? 'right-0' : 'left-0'}`}>
+              {new Date(message.createdAt || message.timestamp || Date.now()).toLocaleString()}
+            </div>
+          )}
         </div>
 
-        {/* Action Menu (Only for own messages for now, or could handle delete for others locally if allowed) */}
+        {/* Action Menu (hover) */}
         <div className={`relative mb-2 opacity-0 group-hover:opacity-100 transition-opacity ${isOwn ? 'mr-1' : 'ml-1'}`} ref={menuRef}>
           <button
             onClick={() => setShowMenu(!showMenu)}
@@ -230,8 +278,24 @@ export function MessageBubble({ message, isOwn, conversationId, onImageClick }: 
           >
             <MoreVertical size={14} />
           </button>
-            {showMenu && (
+          {showMenu && (
             <div className={`absolute bottom-full mb-2 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl shadow-lg min-w-[140px] py-1 z-50 overflow-hidden text-left ${isOwn ? 'right-0' : 'left-0'}`}>
+              {message.type === 'text' && (
+                <button
+                  onClick={handleCopy}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+                >
+                  <Copy size={14} />
+                  <span>Copy</span>
+                </button>
+              )}
+              <button
+                onClick={handleReply}
+                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+              >
+                <Reply size={14} />
+                <span>Reply</span>
+              </button>
               {isOwn && (
                 <button
                   onClick={handleDelete} 
@@ -241,10 +305,59 @@ export function MessageBubble({ message, isOwn, conversationId, onImageClick }: 
                   <span>Delete</span>
                 </button>
               )}
-               {/* Add more options like copy, reply here later */}
             </div>
           )}
         </div>
+        
+        {/* Right-click context menu */}
+        {showContextMenu && (
+          <div 
+            ref={contextMenuRef}
+            style={{ 
+              position: 'fixed', 
+              left: contextMenuPos.x, 
+              top: contextMenuPos.y,
+              zIndex: 100 
+            }}
+            className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl shadow-xl min-w-[160px] py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+          >
+            {message.type === 'text' && (
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+              >
+                <Copy size={16} />
+                <span>Copy text</span>
+              </button>
+            )}
+            <button
+              onClick={handleReply}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              <Reply size={16} />
+              <span>Reply</span>
+            </button>
+            <button
+              onClick={() => setShowContextMenu(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              <Forward size={16} />
+              <span>Forward</span>
+            </button>
+            {isOwn && (
+              <>
+                <div className="border-t border-[var(--border-primary)] my-1" />
+                <button
+                  onClick={handleDelete} 
+                  className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                >
+                  <Trash2 size={16} />
+                  <span>Delete</span>
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

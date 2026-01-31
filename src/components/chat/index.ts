@@ -11,3 +11,5 @@ export { VoiceMessageBubble } from './VoiceMessageBubble';
 export { AttachmentSheet } from './AttachmentSheet';
 export { DateSeparator, isSameDay } from './DateSeparator';
 export { ImageViewer } from './ImageViewer';
+export { ScrollToBottomFab } from './ScrollToBottomFab';
+export { NewChatModal } from './NewChatModal';

@@ -84,6 +84,34 @@
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background: var(--icon-secondary);
   }
+  
+  /* Hidden scrollbar but still scrollable */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Chat area scrollbar - ultra thin */
+  .scrollbar-chat::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .scrollbar-chat::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-chat::-webkit-scrollbar-thumb {
+    background: var(--bg-hover);
+    border-radius: 2px;
+  }
+  
+  .scrollbar-chat::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+  }
 }
 
 /* Custom animations */

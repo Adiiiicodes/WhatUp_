@@ -10,6 +10,7 @@ import { AttachmentSheet } from './AttachmentSheet';
 import { DateSeparator, isSameDay } from './DateSeparator';
 import { ImageViewer } from './ImageViewer';
 import apiClient from '@/lib/api';
+import socketClient from '@/lib/signalingClient';
 
 interface ChatWindowProps {
   currentUser: User;
@@ -49,6 +50,11 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null);
   const [viewerImageInfo, setViewerImageInfo] = useState<{ fileName?: string; fileSize?: number } | null>(null);
+
+  // Typing indicator state
+  const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
 
   // Helper to extract id from a string, Object-like, or other value
   const idOf = (v: unknown): string => {
@@ -97,6 +103,43 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     const interval = setInterval(fetchMessages, 3000); // Poll every 3 seconds
     return () => clearInterval(interval);
   }, [fetchMessages]);
+
+  // Listen for typing indicators
+  useEffect(() => {
+    const unsubTyping = socketClient.onTyping((event) => {
+      if (event.conversationId === conversation._id && event.userId !== currentUser._id) {
+        setIsOtherUserTyping(event.isTyping);
+      }
+    });
+
+    return () => {
+      unsubTyping();
+      // Stop typing when leaving conversation
+      if (isTypingRef.current) {
+        socketClient.stopTyping(conversation._id);
+      }
+    };
+  }, [conversation._id, currentUser._id]);
+
+  // Handle typing emission with debounce
+  const handleTyping = useCallback(() => {
+    // Start typing if not already
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      socketClient.startTyping(conversation._id);
+    }
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set new timeout to stop typing after 2 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      isTypingRef.current = false;
+      socketClient.stopTyping(conversation._id);
+    }, 2000);
+  }, [conversation._id]);
 
   // Listen for message deletion events (triggered by MessageBubble)
   useEffect(() => {
@@ -506,7 +549,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       {/* Chat Header */}
       <ChatHeader
         user={otherUser}
-        isTyping={false}
+        isTyping={isOtherUserTyping}
         onBackPress={onBack}
       />
 
@@ -688,7 +731,12 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       {/* Message Input */}
       <InputBar
         value={newMessage}
-        onChangeText={setNewMessage}
+        onChangeText={(text) => {
+          setNewMessage(text);
+          if (text.trim()) {
+            handleTyping();
+          }
+        }}
         onSend={() => { handleSendMessage({ preventDefault: () => {} } as React.FormEvent); }}
         onAttachPress={() => setShowAttachMenu(true)}
         onMicPressIn={startRecording}
