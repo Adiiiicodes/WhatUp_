@@ -1,5 +1,25 @@
-// API client for communicating with the backend
+/**
+ * @fileoverview Production-grade API client with retry logic, error handling, and logging
+ * 
+ * Features:
+ * - Automatic retry with exponential backoff
+ * - Structured error handling
+ * - Request/response logging
+ * - Token management
+ * - Type-safe responses
+ */
+
 import type { User, Message, Conversation, AuthResponse, ApiResponse } from '../types/chat';
+import { logger } from './logger';
+import { 
+  AppError, 
+  NetworkError, 
+  AuthError, 
+  RateLimitError, 
+  ServerError,
+  createErrorFromStatus,
+  ErrorCode,
+} from './errors';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -38,9 +58,42 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
   retryStatusCodes: [408, 429, 500, 502, 503, 504], // Timeout, Rate limit, Server errors
 };
 
+// Request interceptor type
+type RequestInterceptor = (config: RequestInit) => RequestInit | Promise<RequestInit>;
+type ResponseInterceptor = <T>(response: ApiResponse<T>) => ApiResponse<T> | Promise<ApiResponse<T>>;
+
 class ApiClient {
   private token: string | null = null;
   private retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG;
+  private requestInterceptors: RequestInterceptor[] = [];
+  private responseInterceptors: ResponseInterceptor[] = [];
+  private readonly log = logger.child({ component: 'ApiClient' });
+
+  /**
+   * Add a request interceptor
+   */
+  addRequestInterceptor(interceptor: RequestInterceptor): () => void {
+    this.requestInterceptors.push(interceptor);
+    return () => {
+      const index = this.requestInterceptors.indexOf(interceptor);
+      if (index >= 0) {
+        this.requestInterceptors.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Add a response interceptor
+   */
+  addResponseInterceptor(interceptor: ResponseInterceptor): () => void {
+    this.responseInterceptors.push(interceptor);
+    return () => {
+      const index = this.responseInterceptors.indexOf(interceptor);
+      if (index >= 0) {
+        this.responseInterceptors.splice(index, 1);
+      }
+    };
+  }
 
   setToken(token: string | null) {
     this.token = token;
@@ -110,6 +163,28 @@ class ApiClient {
   }
 
   /**
+   * Apply request interceptors
+   */
+  private async applyRequestInterceptors(config: RequestInit): Promise<RequestInit> {
+    let result = config;
+    for (const interceptor of this.requestInterceptors) {
+      result = await interceptor(result);
+    }
+    return result;
+  }
+
+  /**
+   * Apply response interceptors
+   */
+  private async applyResponseInterceptors<T>(response: ApiResponse<T>): Promise<ApiResponse<T>> {
+    let result = response;
+    for (const interceptor of this.responseInterceptors) {
+      result = await interceptor(result);
+    }
+    return result;
+  }
+
+  /**
    * Core request method with retry logic and error handling
    */
   private async request<T>(
@@ -118,9 +193,12 @@ class ApiClient {
     retryCount = 0
   ): Promise<ApiResponse<T>> {
     const token = this.getToken();
+    const requestId = logger.generateRequestId();
+    const timer = this.log.time(`request:${endpoint}`);
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      'X-Request-ID': requestId,
       ...options.headers,
     };
 
@@ -128,11 +206,20 @@ class ApiClient {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
 
+    let config: RequestInit = { ...options, headers };
+    
+    // Apply request interceptors
+    config = await this.applyRequestInterceptors(config);
+
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        headers,
-      });
+      this.log.debug({ 
+        endpoint, 
+        method: config.method || 'GET',
+        requestId,
+        retryCount,
+      }, 'Making API request');
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
 
       // Handle retry for specific status codes
       if (
@@ -140,7 +227,13 @@ class ApiClient {
         retryCount < this.retryConfig.maxRetries
       ) {
         const delay = this.retryConfig.retryDelay * Math.pow(2, retryCount); // Exponential backoff
-        console.warn(`Request failed with ${response.status}, retrying in ${delay}ms... (${retryCount + 1}/${this.retryConfig.maxRetries})`);
+        this.log.warn({ 
+          status: response.status, 
+          delayMs: delay, 
+          attempt: retryCount + 1,
+          maxRetries: this.retryConfig.maxRetries,
+          requestId,
+        }, 'Request failed, retrying');
         await this.sleep(delay);
         return this.request<T>(endpoint, options, retryCount + 1);
       }
@@ -161,10 +254,20 @@ class ApiClient {
         }
       }
 
+      timer();
+
       // Handle non-OK responses
       if (!response.ok) {
         const error = this.normalizeError(data, response.status);
-        return this.createResponse<T>(false, undefined, error);
+        this.log.warn({ 
+          endpoint, 
+          status: response.status, 
+          error,
+          requestId,
+        }, 'API request failed');
+        
+        const result = this.createResponse<T>(false, undefined, error);
+        return this.applyResponseInterceptors(result);
       }
 
       // Handle backend response format
@@ -172,24 +275,39 @@ class ApiClient {
       
       // If response already has success/data structure, return as-is
       if ('success' in responseData) {
-        return data as ApiResponse<T>;
+        const result = data as ApiResponse<T>;
+        return this.applyResponseInterceptors(result);
       }
 
       // Wrap raw data in ApiResponse format
-      return this.createResponse<T>(true, data as T);
+      const result = this.createResponse<T>(true, data as T);
+      return this.applyResponseInterceptors(result);
 
     } catch (error) {
+      timer();
+      
       // Network error - retry if allowed
       if (retryCount < this.retryConfig.maxRetries) {
         const delay = this.retryConfig.retryDelay * Math.pow(2, retryCount);
-        console.warn(`Network error, retrying in ${delay}ms... (${retryCount + 1}/${this.retryConfig.maxRetries})`);
+        this.log.warn({ 
+          error, 
+          delayMs: delay, 
+          attempt: retryCount + 1,
+          requestId,
+        }, 'Network error, retrying');
         await this.sleep(delay);
         return this.request<T>(endpoint, options, retryCount + 1);
       }
 
       const normalizedError = this.normalizeError(error);
-      console.error('API request failed:', normalizedError);
-      return this.createResponse<T>(false, undefined, normalizedError);
+      this.log.error({ 
+        endpoint, 
+        error: normalizedError,
+        requestId,
+      }, 'API request failed after retries');
+      
+      const result = this.createResponse<T>(false, undefined, normalizedError);
+      return this.applyResponseInterceptors(result);
     }
   }
 
@@ -402,7 +520,7 @@ class ApiClient {
 
       return messageRes;
     } catch (error) {
-      console.error('File upload error:', error);
+      this.log.error({ error, conversationId, fileName: file.name }, 'File upload error');
       return { success: false, error: 'Failed to upload file' };
     }
   }

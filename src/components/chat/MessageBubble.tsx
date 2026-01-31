@@ -1,9 +1,11 @@
 // src/components/chat/MessageBubble.tsx
 import { Message } from '@/types/chat';
 import { Download, FileText, Trash2, CheckCheck, Check, MoreVertical, Copy, Reply, Forward } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import apiClient from '@/lib/api';
 import { VoiceMessageBubble } from './VoiceMessageBubble';
+import { logger } from '@/lib/logger';
+import { formatFileSize, copyToClipboard } from '@/lib/utils';
 
 interface MessageBubbleProps {
   message: Message;
@@ -13,7 +15,9 @@ interface MessageBubbleProps {
   onReply?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, isOwn, conversationId, onImageClick, onReply }: MessageBubbleProps) {
+const log = logger.child({ component: 'MessageBubble' });
+
+function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, onReply }: MessageBubbleProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
@@ -49,10 +53,9 @@ export function MessageBubble({ message, isOwn, conversationId, onImageClick, on
   const handleCopy = async () => {
     setShowMenu(false);
     setShowContextMenu(false);
-    try {
-      await navigator.clipboard.writeText(message.content || '');
-    } catch (err) {
-      console.error('Failed to copy:', err);
+    const success = await copyToClipboard(message.content || '');
+    if (!success) {
+      log.warn({ messageId: message._id }, 'Failed to copy message content');
     }
   };
 
@@ -67,29 +70,25 @@ export function MessageBubble({ message, isOwn, conversationId, onImageClick, on
     setShowMenu(false);
     if (!confirm('Delete this message for everyone?')) return;
     if (!conversationId) {
+      log.warn({ messageId: message._id }, 'Cannot delete: conversation ID missing');
       alert('Cannot delete: conversation ID missing');
       return;
     }
     try {
       const res = await apiClient.deleteMessage(message._id, conversationId);
       if (res.success) {
+        log.info({ messageId: message._id }, 'Message deleted');
         window.dispatchEvent(new CustomEvent('message:deleted', { detail: { id: message._id } }));
         window.dispatchEvent(new CustomEvent('conversations:refresh'));
       } else {
         const errorMsg = typeof res.error === 'string' ? res.error : res.error?.message || 'Failed to delete message';
+        log.warn({ messageId: message._id, error: errorMsg }, 'Failed to delete message');
         alert(errorMsg);
       }
     } catch (e) {
-      console.error('Delete error', e);
+      log.error({ error: e, messageId: message._id }, 'Delete error');
       alert('Delete failed');
     }
-  };
-
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes || bytes === 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
   };
 
   const formatDuration = (seconds?: number) => {
@@ -362,3 +361,16 @@ export function MessageBubble({ message, isOwn, conversationId, onImageClick, on
     </div>
   );
 }
+
+// Memoized export for performance optimization
+export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps) => {
+  // Custom comparison for better memoization
+  return (
+    prevProps.message._id === nextProps.message._id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.message.isRead === nextProps.message.isRead &&
+    prevProps.message.isEdited === nextProps.message.isEdited &&
+    prevProps.isOwn === nextProps.isOwn &&
+    prevProps.conversationId === nextProps.conversationId
+  );
+});

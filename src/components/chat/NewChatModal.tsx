@@ -5,6 +5,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Search, Users, UserPlus } from 'lucide-react';
 import { User } from '@/types/chat';
 import apiClient from '@/lib/api';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ component: 'NewChatModal' });
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -52,7 +55,7 @@ export function NewChatModal({ isOpen, onClose, onSelectUser, currentUserId }: N
         setUsers(res.data.filter(u => u._id !== currentUserId));
       }
     } catch (error) {
-      console.error('Error fetching users:', error);
+      log.error({ error }, 'Error fetching users');
     } finally {
       setLoading(false);
     }

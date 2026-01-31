@@ -3,6 +3,7 @@
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { FiAlertTriangle, FiRefreshCw, FiHome } from 'react-icons/fi';
+import { logger } from '@/lib/logger';
 
 interface Props {
   children: ReactNode;
@@ -17,6 +18,8 @@ interface State {
 }
 
 export class ErrorBoundary extends Component<Props, State> {
+  private log = logger.child({ component: 'ErrorBoundary' });
+
   constructor(props: Props) {
     super(props);
     this.state = {
@@ -33,8 +36,11 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
     
-    // Log error to console in development
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    // Log error using the logger
+    this.log.error({
+      error,
+      componentStack: errorInfo.componentStack,
+    }, 'ErrorBoundary caught an error');
     
     // Call optional error handler
     this.props.onError?.(error, errorInfo);

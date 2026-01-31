@@ -1,6 +1,10 @@
 // src/lib/fileManager.ts
 // File manager utility for web with IndexedDB caching
 
+import { logger } from './logger';
+
+const log = logger.child({ module: 'FileManager' });
+
 const DB_NAME = 'whatup_file_cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'files';
@@ -59,12 +63,13 @@ class FileManager {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
-        console.error('Failed to open IndexedDB:', request.error);
+        log.error({ error: request.error }, 'Failed to open IndexedDB');
         reject(request.error);
       };
 
       request.onsuccess = () => {
         this.db = request.result;
+        log.debug('IndexedDB initialized successfully');
         resolve(this.db);
       };
 
@@ -83,6 +88,7 @@ class FileManager {
           const metaStore = db.createObjectStore(METADATA_STORE, { keyPath: 'id' });
           metaStore.createIndex('url', 'url', { unique: true });
         }
+        log.info('IndexedDB upgrade completed');
       };
     });
   }
@@ -99,6 +105,7 @@ class FileManager {
     if (cached) {
       // Update last accessed time
       await this.updateLastAccessed(cached.id);
+      log.debug({ url }, 'File retrieved from cache');
       return { blob: cached.blob, fromCache: true };
     }
 
@@ -106,7 +113,9 @@ class FileManager {
     const blob = await this.downloadFile(url, onProgress);
     
     // Cache it in the background
-    this.cacheFile(url, blob).catch(console.error);
+    this.cacheFile(url, blob).catch((error) => {
+      log.error({ error, url }, 'Failed to cache file');
+    });
 
     return { blob, fromCache: false };
   }
@@ -174,7 +183,9 @@ class FileManager {
           
           // Check if cache is expired
           if (cached && Date.now() - cached.cachedAt > this.maxCacheAge) {
-            this.removeFromCache(cached.id).catch(console.error);
+            this.removeFromCache(cached.id).catch((error) => {
+              log.warn({ error, id: cached.id }, 'Failed to remove expired cache');
+            });
             resolve(null);
             return;
           }
@@ -185,7 +196,7 @@ class FileManager {
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Cache read error:', error);
+      log.error({ error, url }, 'Cache read error');
       return null;
     }
   }
@@ -219,11 +230,14 @@ class FileManager {
         const store = transaction.objectStore(STORE_NAME);
         const request = store.put(cachedFile);
 
-        request.onsuccess = () => resolve();
+        request.onsuccess = () => {
+          log.debug({ url, fileSize: blob.size }, 'File cached successfully');
+          resolve();
+        };
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Cache write error:', error);
+      log.error({ error, url }, 'Cache write error');
     }
   }
 
@@ -271,7 +285,7 @@ class FileManager {
         isCached: false,
       };
     } catch (error) {
-      console.error('Failed to get file metadata:', error);
+      log.error({ error, url }, 'Failed to get file metadata');
       return null;
     }
   }
@@ -287,11 +301,14 @@ class FileManager {
         const store = transaction.objectStore(STORE_NAME);
         const request = store.delete(id);
 
-        request.onsuccess = () => resolve();
+        request.onsuccess = () => {
+          log.debug({ id }, 'File removed from cache');
+          resolve();
+        };
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Cache delete error:', error);
+      log.error({ error, id }, 'Cache delete error');
     }
   }
 
@@ -306,11 +323,14 @@ class FileManager {
         const store = transaction.objectStore(STORE_NAME);
         const request = store.clear();
 
-        request.onsuccess = () => resolve();
+        request.onsuccess = () => {
+          log.info('Cache cleared');
+          resolve();
+        };
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Cache clear error:', error);
+      log.error({ error }, 'Cache clear error');
     }
   }
 
@@ -339,7 +359,7 @@ class FileManager {
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Failed to get cache size:', error);
+      log.error({ error }, 'Failed to get cache size');
       return 0;
     }
   }
@@ -382,7 +402,7 @@ class FileManager {
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Cache cleanup error:', error);
+      log.error({ error }, 'Cache cleanup error');
     }
   }
 
@@ -404,7 +424,7 @@ class FileManager {
         }
       };
     } catch (error) {
-      console.error('Failed to update last accessed:', error);
+      log.warn({ error, id }, 'Failed to update last accessed');
     }
   }
 

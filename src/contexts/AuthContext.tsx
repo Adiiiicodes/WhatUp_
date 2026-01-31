@@ -1,11 +1,16 @@
 // src/contexts/AuthContext.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api';
-import socketClient from '@/lib/signalingClient';
+import socketClient from '@/lib/socketClient';
+import { logger } from '@/lib/logger';
 import type { User } from '@/types/chat';
+
+// ============================================
+// Types
+// ============================================
 
 interface AuthContextType {
   user: User | null;
@@ -22,30 +27,40 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// ============================================
+// Provider Component
+// ============================================
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  
+  const log = useMemo(() => logger.child({ component: 'AuthProvider' }), []);
 
   const clearError = useCallback(() => setError(null), []);
 
   // Connect socket when user is authenticated
   const connectSocket = useCallback((token: string) => {
+    log.debug('Connecting socket');
     socketClient.connect(token);
-  }, []);
+  }, [log]);
 
   // Disconnect socket on logout
   const disconnectSocket = useCallback(() => {
+    log.debug('Disconnecting socket');
     socketClient.cleanup();
     socketClient.disconnect();
-  }, []);
+  }, [log]);
 
   // Refresh user data from server
   const refreshUser = useCallback(async () => {
+    const timer = log.time('refreshUser');
     try {
       const token = apiClient.getToken();
       if (!token) {
+        log.debug('No token found, user is not authenticated');
         setUser(null);
         setIsLoading(false);
         return;
@@ -53,23 +68,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const res = await apiClient.getMe();
       if (res.success && res.data) {
+        log.info({ userId: res.data._id }, 'User refreshed successfully');
         setUser(res.data);
         connectSocket(token);
       } else {
         // Token invalid, clear it
+        log.warn('Token invalid, clearing auth state');
         apiClient.setToken(null);
         setUser(null);
         disconnectSocket();
       }
     } catch (err) {
-      console.error('Failed to refresh user:', err);
+      log.error({ error: err }, 'Failed to refresh user');
       apiClient.setToken(null);
       setUser(null);
       disconnectSocket();
     } finally {
+      timer();
       setIsLoading(false);
     }
-  }, [connectSocket, disconnectSocket]);
+  }, [connectSocket, disconnectSocket, log]);
 
   // Initialize auth state on mount
   useEffect(() => {
@@ -80,98 +98,119 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setError(null);
     setIsLoading(true);
+    const timer = log.time('login');
 
     try {
+      log.info({ email }, 'Attempting login');
       const res = await apiClient.login(email, password);
 
       if (res.success && res.data) {
+        log.info({ email }, 'Login successful');
         await refreshUser();
         return true;
       } else {
         const errorMsg = typeof res.error === 'string' 
           ? res.error 
           : res.error?.message || 'Login failed';
+        log.warn({ email, error: errorMsg }, 'Login failed');
         setError(errorMsg);
         return false;
       }
     } catch (err) {
+      log.error({ email, error: err }, 'Login error');
       setError('An error occurred during login');
       return false;
     } finally {
+      timer();
       setIsLoading(false);
     }
-  }, [refreshUser]);
+  }, [refreshUser, log]);
 
   // Signup function
   const signup = useCallback(async (email: string, password: string, name: string): Promise<boolean> => {
     setError(null);
     setIsLoading(true);
+    const timer = log.time('signup');
 
     try {
+      log.info({ email, name }, 'Attempting signup');
       const res = await apiClient.signup(email, password, name);
 
       if (res.success && res.data) {
+        log.info({ email }, 'Signup successful');
         await refreshUser();
         return true;
       } else {
         const errorMsg = typeof res.error === 'string' 
           ? res.error 
           : res.error?.message || 'Signup failed';
+        log.warn({ email, error: errorMsg }, 'Signup failed');
         setError(errorMsg);
         return false;
       }
     } catch (err) {
+      log.error({ email, error: err }, 'Signup error');
       setError('An error occurred during signup');
       return false;
     } finally {
+      timer();
       setIsLoading(false);
     }
-  }, [refreshUser]);
+  }, [refreshUser, log]);
 
   // Google OAuth function
   const googleAuth = useCallback(async (idToken: string): Promise<boolean> => {
     setError(null);
     setIsLoading(true);
+    const timer = log.time('googleAuth');
 
     try {
+      log.info('Attempting Google authentication');
       const res = await apiClient.googleNativeAuth(idToken);
 
       if (res.success && res.data) {
+        log.info('Google authentication successful');
         await refreshUser();
         return true;
       } else {
         const errorMsg = typeof res.error === 'string' 
           ? res.error 
           : res.error?.message || 'Google authentication failed';
+        log.warn({ error: errorMsg }, 'Google authentication failed');
         setError(errorMsg);
         return false;
       }
     } catch (err) {
+      log.error({ error: err }, 'Google authentication error');
       setError('An error occurred during Google authentication');
       return false;
     } finally {
+      timer();
       setIsLoading(false);
     }
-  }, [refreshUser]);
+  }, [refreshUser, log]);
 
   // Logout function
   const logout = useCallback(async () => {
     setIsLoading(true);
+    const timer = log.time('logout');
 
     try {
+      log.info({ userId: user?._id }, 'Logging out');
       await apiClient.logout();
     } catch (err) {
-      console.error('Logout error:', err);
+      log.error({ error: err }, 'Logout error');
     } finally {
+      timer();
       apiClient.setToken(null);
       disconnectSocket();
       setUser(null);
       setIsLoading(false);
       router.push('/');
     }
-  }, [disconnectSocket, router]);
+  }, [disconnectSocket, router, user, log]);
 
-  const value: AuthContextType = {
+  const value = useMemo<AuthContextType>(() => ({
     user,
     isLoading,
     isAuthenticated: !!user,
@@ -182,7 +221,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUser,
     error,
     clearError,
-  };
+  }), [user, isLoading, login, signup, googleAuth, logout, refreshUser, error, clearError]);
 
   return (
     <AuthContext.Provider value={value}>
@@ -191,7 +230,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useAuth() {
+// ============================================
+// Hook
+// ============================================
+
+export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');

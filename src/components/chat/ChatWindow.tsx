@@ -1,7 +1,7 @@
 // src/components/chat/ChatWindow.tsx
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { User, Conversation, Message } from '@/types/chat';
 import { MessageBubble } from './MessageBubble';
 import { ChatHeader } from './ChatHeader';
@@ -10,7 +10,9 @@ import { AttachmentSheet } from './AttachmentSheet';
 import { DateSeparator, isSameDay } from './DateSeparator';
 import { ImageViewer } from './ImageViewer';
 import apiClient from '@/lib/api';
-import socketClient from '@/lib/signalingClient';
+import socketClient from '@/lib/socketClient';
+import { logger } from '@/lib/logger';
+import { extractId, formatFileSize, debounce } from '@/lib/utils';
 
 interface ChatWindowProps {
   currentUser: User;
@@ -18,7 +20,17 @@ interface ChatWindowProps {
   onBack?: () => void;
 }
 
+// Memoized message component for performance
+const MemoizedMessageBubble = memo(MessageBubble);
+
 export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProps) {
+  // Initialize logger for this component
+  const log = useMemo(() => logger.child({ 
+    component: 'ChatWindow', 
+    conversationId: conversation._id,
+    userId: currentUser._id,
+  }), [conversation._id, currentUser._id]);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -47,6 +59,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const audioStreamRef = useRef<MediaStream | null>(null);
   const recordingIntervalRef = useRef<number | null>(null);
   const uploadPromiseRef = useRef<Promise<void> | null>(null);
+  const recordingCancelledRef = useRef(false);
 
   // Emoji picker state
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -63,21 +76,8 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
 
-  // Helper to extract id from a string, Object-like, or other value
-  const idOf = (v: unknown): string => {
-    if (v == null) return '';
-    if (typeof v === 'string') return v;
-    if (typeof v === 'object') {
-      const obj = v as Record<string, unknown>;
-      if ('_id' in obj && obj._id != null) return String(obj._id);
-      if ('id' in obj && obj.id != null) return String(obj.id);
-      if (typeof obj.toString === 'function') return String(obj.toString());
-    }
-    return String(v);
-  };
-
-  // Determine the other participant; participants can be strings (ids) or populated User objects
-  const otherParticipant = conversation.participants.find((p) => idOf(p) !== idOf(currentUser._id));
+  // Determine the other participant using extractId utility
+  const otherParticipant = conversation.participants.find((p) => extractId(p) !== extractId(currentUser._id));
   const otherUser: User = typeof otherParticipant === 'string' || otherParticipant == null
     ? {
         _id: typeof otherParticipant === 'string' ? otherParticipant : '',
@@ -89,21 +89,24 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     : otherParticipant;
 
   const fetchMessages = useCallback(async () => {
+    const timer = log.time('fetchMessages');
     try {
       const res = await apiClient.getMessages(conversation._id);
 
       if (res.success && res.data) {
         setMessages(res.data);
       } else if (res.error) {
-        console.warn('Error fetching messages:', res.error);
+        log.warn({ error: res.error }, 'Error fetching messages');
         // If conversation doesn't exist anymore, stop polling
         setMessages([]);
         window.dispatchEvent(new CustomEvent('conversations:refresh'));
       }
     } catch (error) {
-      console.error('Error fetching messages:', error);
+      log.error({ error }, 'Error fetching messages');
+    } finally {
+      timer();
     }
-  }, [conversation._id]);
+  }, [conversation._id, log]);
 
   useEffect(() => {
     fetchMessages();
@@ -271,7 +274,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         shouldAutoScrollRef.current = true;
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      log.error({ error }, 'Error sending message');
     } finally {
       setLoading(false);
     }
@@ -284,11 +287,23 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     setSelectedFile(file);
     setShowAttachMenu(false);
 
-    // Create preview URL for images/videos/audio
+    // Determine media type immediately for preview
     const fileType = file.type.split('/')[0];
+    let mediaType: 'image' | 'video' | 'audio' | 'file' = 'file';
+    if (type === 'image' || fileType === 'image') mediaType = 'image';
+    else if (fileType === 'video') mediaType = 'video';
+    else if (type === 'voice' || fileType === 'audio') mediaType = 'audio';
+    
+    // Set media type immediately so preview renders
+    setUploadedMediaType(mediaType);
+
+    // Create preview URL for images/videos/audio
     if (fileType === 'image' || fileType === 'video' || fileType === 'audio') {
       const preview = URL.createObjectURL(file);
       setPreviewUrl(preview);
+    } else {
+      // For documents, still show a preview (file icon)
+      setPreviewUrl('file-preview');
     }
 
     // Start upload process
@@ -363,9 +378,9 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         setUploadedMediaMetadata(metadata);
         setUploadProgress(100);
 
-        console.log('[ChatWindow] Media uploaded:', { url: publicUrl, type: mediaType, metadata });
+        log.info({ url: publicUrl, type: mediaType, metadata }, 'Media uploaded successfully');
       } catch (error) {
-        console.error('[ChatWindow] Upload failed:', error);
+        log.error({ error }, 'Upload failed');
         alert('Failed to upload file. Please try again.');
         handleCancelUpload();
       } finally {
@@ -472,18 +487,10 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     setNewMessage((prev) => prev + emoji);
   };
 
-  // Format file size
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes || bytes === 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-  };
-
   // Voice recording functions
   const startRecording = async () => {
     try {
-      console.log('[ChatWindow] Starting voice recording...');
+      log.debug('Starting voice recording...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
       
@@ -499,14 +506,14 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       setVoiceRecordingReady(false);
 
       mediaRecorder.ondataavailable = (ev) => {
-        console.log('[ChatWindow] ondataavailable:', ev.data?.size);
+        log.debug({ size: ev.data?.size }, 'Audio data available');
         if (ev.data && ev.data.size > 0) {
           recordedChunksRef.current.push(ev.data);
         }
       };
 
       mediaRecorder.onstop = async () => {
-        console.log('[ChatWindow] MediaRecorder stopped, chunks:', recordedChunksRef.current.length);
+        log.debug({ chunks: recordedChunksRef.current.length, cancelled: recordingCancelledRef.current }, 'MediaRecorder stopped');
         
         // Stop all tracks
         if (audioStreamRef.current) {
@@ -514,15 +521,22 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
           audioStreamRef.current = null;
         }
         
+        // If cancelled, don't process the recording
+        if (recordingCancelledRef.current) {
+          log.debug('Recording was cancelled, skipping processing');
+          recordingCancelledRef.current = false;
+          return;
+        }
+        
         if (recordedChunksRef.current.length === 0) {
-          console.log('[ChatWindow] No audio data recorded');
+          log.warn('No audio data recorded');
           return;
         }
         
         const blob = new Blob(recordedChunksRef.current, { type: mimeType });
         const file = new File([blob], `${Date.now()}_voice.webm`, { type: blob.type });
         
-        console.log('[ChatWindow] Created audio file:', file.name, file.size, 'bytes');
+        log.info({ fileName: file.name, fileSize: file.size }, 'Created audio file');
 
         // Create local preview
         const preview = URL.createObjectURL(blob);
@@ -536,7 +550,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
         // Start upload in background
         uploadMedia(file, 'voice').catch((err) => {
-          console.error('[ChatWindow] Background upload failed', err);
+          log.error({ error: err }, 'Background upload failed');
         });
       };
 
@@ -551,15 +565,15 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         setRecordingSeconds((s) => s + 1);
       }, 1000) as unknown as number;
       
-      console.log('[ChatWindow] Recording started successfully');
+      log.info('Recording started successfully');
     } catch (err) {
-      console.error('[ChatWindow] startRecording failed', err);
+      log.error({ error: err }, 'startRecording failed');
       alert('Unable to access microphone. Please check permissions.');
     }
   };
 
   const stopRecording = () => {
-    console.log('[ChatWindow] Stopping recording...');
+    log.debug('Stopping recording...');
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== 'inactive') {
       // Request any remaining data before stopping
@@ -573,11 +587,15 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       clearInterval(recordingIntervalRef.current);
       recordingIntervalRef.current = null;
     }
-    console.log('[ChatWindow] Recording stopped');
+    log.debug('Recording stopped');
   };
 
   const cancelRecording = () => {
-    console.log('[ChatWindow] Canceling recording...');
+    log.debug('Canceling recording...');
+    
+    // Set cancelled flag BEFORE stopping so onstop handler knows to skip
+    recordingCancelledRef.current = true;
+    
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== 'inactive') {
       try {
@@ -585,7 +603,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         recordedChunksRef.current = [];
         mr.stop();
       } catch (e) {
-        console.log('[ChatWindow] cancelRecording stop error', e);
+        log.warn({ error: e }, 'cancelRecording stop error');
       }
     }
     // Stop audio stream
@@ -597,10 +615,21 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     setIsRecording(false);
     setRecordingSeconds(0);
     setVoiceRecordingReady(false);
+    
+    // Clear all preview state
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setUploadedMediaUrl(null);
+    setUploadedMediaType(null);
+    setUploadedMediaMetadata(null);
+    setUploading(false);
+    setUploadProgress(0);
+    
     if (recordingIntervalRef.current) {
       clearInterval(recordingIntervalRef.current);
       recordingIntervalRef.current = null;
     }
+    log.debug('Recording cancelled and state cleared');
   };
 
   const triggerFileInput = (accept: string, type: 'image' | 'document' | 'voice') => {
@@ -674,8 +703,8 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
           </div>
         ) : (
           messages.map((message, index) => {
-            const key = idOf(message._id || (message as unknown as Record<string, unknown>).id);
-            const senderId = idOf((message as Message).senderId);
+            const key = extractId(message._id || (message as unknown as Record<string, unknown>).id);
+            const senderId = extractId((message as Message).senderId);
             const prevMessage = index > 0 ? messages[index - 1] : null;
             const currentDate = new Date(message.createdAt || message.timestamp || Date.now());
             const prevDate = prevMessage ? new Date(prevMessage.createdAt || prevMessage.timestamp || Date.now()) : null;
@@ -684,9 +713,9 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
             return (
               <div key={key || Math.random().toString(36).slice(2)}>
                 {showDateSeparator && <DateSeparator date={currentDate} />}
-                <MessageBubble
+                <MemoizedMessageBubble
                   message={message}
-                  isOwn={senderId === idOf(currentUser._id)}
+                  isOwn={senderId === extractId(currentUser._id)}
                   onImageClick={(url) => handleImageClick(url, message.mediaMetadata)}
                 />
               </div>

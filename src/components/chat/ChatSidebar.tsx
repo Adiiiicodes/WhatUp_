@@ -1,49 +1,23 @@
 // src/components/chat/ChatSidebar.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { User, Conversation } from '@/types/chat';
 import { Search, MoreVertical, LogOut, Plus, Camera, FileText, Mic, Image, Video, Settings, Shield, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api';
-import socketClient from '@/lib/signalingClient';
+import socketClient from '@/lib/socketClient';
 import { NewChatModal } from './NewChatModal';
 import { NoChatsEmptyState, NoSearchResultsEmptyState } from '../ui/EmptyState';
+import { logger } from '@/lib/logger';
+import { extractId, formatConversationTime } from '@/lib/utils';
+
+const log = logger.child({ component: 'ChatSidebar' });
 
 interface ChatSidebarProps {
   currentUser: User;
   selectedConversation: Conversation | null;
   onSelectConversation: (conversation: Conversation) => void;
-}
-
-// Format time for conversation list (WhatsApp style)
-function formatConversationTime(date: Date | string | undefined): string {
-  if (!date) return '';
-  
-  const msgDate = new Date(date);
-  const now = new Date();
-  const diffMs = now.getTime() - msgDate.getTime();
-  const diffMins = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  // Today: show time
-  if (diffDays === 0) {
-    return msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  
-  // Yesterday
-  if (diffDays === 1) {
-    return 'Yesterday';
-  }
-  
-  // This week: show day name
-  if (diffDays < 7) {
-    return msgDate.toLocaleDateString([], { weekday: 'short' });
-  }
-  
-  // Older: show date
-  return msgDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 // Get message type icon
@@ -124,10 +98,34 @@ export function ChatSidebar({
   const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({});
   const router = useRouter();
 
+  // Define fetchConversations first so it can be used in useEffects
+  const fetchConversations = useCallback(async () => {
+    try {
+      const res = await apiClient.getConversations();
+      if (res.success && res.data) {
+        setConversations(res.data);
+      }
+    } catch (error) {
+      log.error({ error }, 'Error fetching conversations');
+    }
+  }, []);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await apiClient.getUsers();
+      if (res.success && res.data) {
+        setUsers(res.data);
+      }
+    } catch (error) {
+      log.error({ error }, 'Error fetching users');
+    }
+  }, []);
+
+  // Initial fetch and polling
   useEffect(() => {
     fetchConversations();
     fetchUsers();
-  }, []);
+  }, [fetchConversations, fetchUsers]);
 
   // Listen for real-time user status updates
   useEffect(() => {
@@ -156,29 +154,7 @@ export function ChatSidebar({
     const handler = () => fetchConversations();
     window.addEventListener('conversations:refresh', handler as EventListener);
     return () => window.removeEventListener('conversations:refresh', handler as EventListener);
-  }, []);
-
-  const fetchConversations = async () => {
-    try {
-      const res = await apiClient.getConversations();
-      if (res.success && res.data) {
-        setConversations(res.data);
-      }
-    } catch (error) {
-      console.error('Error fetching conversations:', error);
-    }
-  };
-
-  const fetchUsers = async () => {
-    try {
-      const res = await apiClient.getUsers();
-      if (res.success && res.data) {
-        setUsers(res.data);
-      }
-    } catch (error) {
-      console.error('Error fetching users:', error);
-    }
-  };
+  }, [fetchConversations]);
 
   const handleUserClick = async (user: User) => {
     try {
@@ -188,31 +164,23 @@ export function ChatSidebar({
         fetchConversations();
       }
     } catch (error) {
-      console.error('Error creating conversation:', error);
+      log.error({ error, targetUserId: user._id }, 'Error creating conversation');
     }
   };
 
   const handleLogout = async () => {
     try {
+      log.info('User logging out');
       await apiClient.logout();
       router.push('/');
     } catch (error) {
-      console.error('Error logging out:', error);
+      log.error({ error }, 'Error logging out');
     }
-  };
-
-  const idOf = (v: unknown): string => {
-    if (v == null) return '';
-    if (typeof v === 'string') return v;
-    const obj = v as Record<string, unknown>;
-    if ('_id' in obj && obj._id != null) return String(obj._id);
-    if ('id' in obj && obj.id != null) return String(obj.id);
-    return String(v);
   };
 
   const getOtherUser = (conversation: Conversation): User | null => {
     for (const p of conversation.participants) {
-      const pid = idOf(p);
+      const pid = extractId(p);
       if (!pid || pid === currentUser._id) continue;
       // if participant is a populated User object, return it with real-time status
       if (typeof p !== 'string') {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { OAuthHandler } from '@/components/auth/OAuthHandler';
@@ -8,6 +8,9 @@ import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatWindow } from '@/components/chat/ChatWindow';
 import { User, Conversation } from '@/types/chat';
 import apiClient from '@/lib/api';
+import { logger } from '@/lib/logger';
+
+const log = logger.child({ component: 'ChatPageClient' });
 
 export default function ChatPageClient() {
   const searchParams = useSearchParams();
@@ -29,22 +32,25 @@ function ChatInner() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchCurrentUser();
-  }, []);
-
-  const fetchCurrentUser = async () => {
+  const fetchCurrentUser = useCallback(async () => {
+    const timer = log.time('fetchCurrentUser');
     try {
       const res = await apiClient.getMe();
       if (res.success && res.data) {
         setCurrentUser(res.data);
+        log.info({ userId: res.data._id }, 'Current user loaded');
       }
     } catch (error) {
-      console.error('Error fetching current user:', error);
+      log.error({ error }, 'Error fetching current user');
     } finally {
       setLoading(false);
+      timer();
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchCurrentUser();
+  }, [fetchCurrentUser]);
 
   if (loading) {
     return (

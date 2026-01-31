@@ -3,6 +3,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { FiX, FiDownload, FiShare2, FiZoomIn, FiZoomOut } from 'react-icons/fi';
+import { logger } from '@/lib/logger';
+import { formatFileSize, copyToClipboard } from '@/lib/utils';
+
+const log = logger.child({ component: 'ImageViewer' });
 
 interface ImageViewerProps {
   src: string;
@@ -11,13 +15,6 @@ interface ImageViewerProps {
   onClose: () => void;
   fileName?: string;
   fileSize?: number;
-}
-
-function formatFileSize(bytes?: number): string {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function ImageViewer({
@@ -86,8 +83,9 @@ export function ImageViewer({
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+      log.info({ fileName }, 'Image downloaded successfully');
     } catch (error) {
-      console.error('Download failed:', error);
+      log.error({ error, src }, 'Download failed');
     }
   };
 
@@ -98,12 +96,16 @@ export function ImageViewer({
           title: fileName || 'Shared Image',
           url: src,
         });
+        log.info({ fileName }, 'Image shared successfully');
       } else {
-        await navigator.clipboard.writeText(src);
+        const success = await copyToClipboard(src);
+        if (success) {
+          log.info({ fileName }, 'Image URL copied to clipboard');
+        }
         // Could show a toast notification here
       }
     } catch (error) {
-      console.error('Share failed:', error);
+      log.error({ error }, 'Share failed');
     }
   };
 
