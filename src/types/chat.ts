@@ -69,13 +69,44 @@ export interface Conversation {
   updatedAt?: Date;
 }
 
+export interface ApiError {
+  code: string;
+  message: string;
+  status?: number;
+  details?: unknown;
+}
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
-  error?: {
-    code: string;
-    message: string;
-  } | string;
+  error?: ApiError | string;
   message?: string;
+}
+
+// Helper type for successful responses
+export type ApiSuccessResponse<T> = {
+  success: true;
+  data: T;
+  error?: never;
+};
+
+// Helper type for error responses
+export type ApiErrorResponse = {
+  success: false;
+  data?: never;
+  error: ApiError | string;
+  message?: string;
+};
+
+// File types for file handling
+export interface FileInfo {
+  url: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  isCached?: boolean;
 }
 

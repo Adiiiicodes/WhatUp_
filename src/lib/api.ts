@@ -3,8 +3,44 @@ import type { User, Message, Conversation, AuthResponse, ApiResponse } from '../
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+// Error types for better error handling
+export interface ApiError {
+  code: string;
+  message: string;
+  status?: number;
+  details?: unknown;
+}
+
+export class ApiRequestError extends Error {
+  code: string;
+  status?: number;
+  details?: unknown;
+
+  constructor(error: ApiError) {
+    super(error.message);
+    this.name = 'ApiRequestError';
+    this.code = error.code;
+    this.status = error.status;
+    this.details = error.details;
+  }
+}
+
+// Retry configuration
+interface RetryConfig {
+  maxRetries: number;
+  retryDelay: number;
+  retryStatusCodes: number[];
+}
+
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  retryDelay: 1000, // 1 second
+  retryStatusCodes: [408, 429, 500, 502, 503, 504], // Timeout, Rate limit, Server errors
+};
+
 class ApiClient {
   private token: string | null = null;
+  private retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG;
 
   setToken(token: string | null) {
     this.token = token;
@@ -23,9 +59,63 @@ class ApiClient {
     return this.token;
   }
 
+  /**
+   * Normalize error response to consistent ApiError format
+   */
+  private normalizeError(error: unknown, status?: number): ApiError {
+    if (error instanceof ApiRequestError) {
+      return { code: error.code, message: error.message, status: error.status };
+    }
+
+    if (typeof error === 'string') {
+      return { code: 'UNKNOWN_ERROR', message: error, status };
+    }
+
+    if (error && typeof error === 'object') {
+      const err = error as Record<string, unknown>;
+      return {
+        code: (err.code as string) || 'UNKNOWN_ERROR',
+        message: (err.message as string) || 'An unknown error occurred',
+        status: (err.status as number) || status,
+        details: err.details,
+      };
+    }
+
+    return { code: 'UNKNOWN_ERROR', message: 'An unknown error occurred', status };
+  }
+
+  /**
+   * Create standardized ApiResponse
+   */
+  private createResponse<T>(success: boolean, data?: T, error?: ApiError | string): ApiResponse<T> {
+    if (success && data !== undefined) {
+      return { success: true, data };
+    }
+    
+    const normalizedError = typeof error === 'string' 
+      ? { code: 'ERROR', message: error } 
+      : error;
+    
+    return { 
+      success: false, 
+      error: normalizedError || { code: 'UNKNOWN_ERROR', message: 'An unknown error occurred' }
+    };
+  }
+
+  /**
+   * Sleep utility for retry delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Core request method with retry logic and error handling
+   */
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    retryCount = 0
   ): Promise<ApiResponse<T>> {
     const token = this.getToken();
 
@@ -38,13 +128,93 @@ class ApiClient {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
 
-    const data = await response.json();
-    return data;
+      // Handle retry for specific status codes
+      if (
+        this.retryConfig.retryStatusCodes.includes(response.status) &&
+        retryCount < this.retryConfig.maxRetries
+      ) {
+        const delay = this.retryConfig.retryDelay * Math.pow(2, retryCount); // Exponential backoff
+        console.warn(`Request failed with ${response.status}, retrying in ${delay}ms... (${retryCount + 1}/${this.retryConfig.maxRetries})`);
+        await this.sleep(delay);
+        return this.request<T>(endpoint, options, retryCount + 1);
+      }
+
+      // Parse response
+      let data: unknown;
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType?.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        // Try parsing as JSON anyway (some servers don't set content-type correctly)
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { message: text };
+        }
+      }
+
+      // Handle non-OK responses
+      if (!response.ok) {
+        const error = this.normalizeError(data, response.status);
+        return this.createResponse<T>(false, undefined, error);
+      }
+
+      // Handle backend response format
+      const responseData = data as Record<string, unknown>;
+      
+      // If response already has success/data structure, return as-is
+      if ('success' in responseData) {
+        return data as ApiResponse<T>;
+      }
+
+      // Wrap raw data in ApiResponse format
+      return this.createResponse<T>(true, data as T);
+
+    } catch (error) {
+      // Network error - retry if allowed
+      if (retryCount < this.retryConfig.maxRetries) {
+        const delay = this.retryConfig.retryDelay * Math.pow(2, retryCount);
+        console.warn(`Network error, retrying in ${delay}ms... (${retryCount + 1}/${this.retryConfig.maxRetries})`);
+        await this.sleep(delay);
+        return this.request<T>(endpoint, options, retryCount + 1);
+      }
+
+      const normalizedError = this.normalizeError(error);
+      console.error('API request failed:', normalizedError);
+      return this.createResponse<T>(false, undefined, normalizedError);
+    }
+  }
+
+  /**
+   * Type guard to check if response is successful
+   */
+  isSuccess<T>(response: ApiResponse<T>): response is ApiResponse<T> & { data: T } {
+    return response.success && response.data !== undefined;
+  }
+
+  /**
+   * Get error message from response
+   */
+  getErrorMessage(response: ApiResponse<unknown>): string {
+    if (response.success) return '';
+    
+    if (typeof response.error === 'string') {
+      return response.error;
+    }
+    
+    if (response.error && typeof response.error === 'object') {
+      return response.error.message || 'An error occurred';
+    }
+    
+    return response.message || 'An unknown error occurred';
   }
 
   // Auth endpoints
