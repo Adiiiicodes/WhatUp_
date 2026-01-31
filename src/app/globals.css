@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  /* WhatsApp Dark Theme Colors */
+  /* WhatsApp Dark Theme Colors (matching mobile app exactly) */
   --bg-primary: #0b141a;
   --bg-secondary: #202c33;
   --bg-tertiary: #111b21;
@@ -21,6 +21,35 @@
   --online-status: #25d366;
   --tick-read: #53bdeb;
   --tick-unread: #8696a0;
+  --danger: #ea4335;
+  --white: #ffffff;
+  
+  /* Spacing scale (matching mobile) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-xxl: 24px;
+  --space-xxxl: 32px;
+  
+  /* Font sizes (matching mobile) */
+  --font-xs: 10px;
+  --font-sm: 12px;
+  --font-md: 14px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+  --font-xxl: 20px;
+  --font-xxxl: 24px;
+  --font-title: 28px;
+  
+  /* Border radius */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
 }
 
 @layer base {
@@ -89,6 +118,78 @@
   }
 }
 
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes pulseOnline {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(37, 211, 102, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes recordingPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes waveform {
+  0%, 100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
 .animate-slide-in-right {
   animation: slideInRight 0.3s ease-out;
 }
@@ -99,6 +200,37 @@
 
 .animate-fade-in {
   animation: fadeIn 0.2s ease-out;
+}
+
+.animate-pulse-online {
+  animation: pulseOnline 2s infinite;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 25%,
+    var(--bg-hover) 50%,
+    var(--bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.animate-recording-pulse {
+  animation: recordingPulse 1s ease-in-out infinite;
+}
+
+.animate-waveform {
+  animation: waveform 0.5s ease-in-out infinite;
 }
 
 /* Message bubble styles */

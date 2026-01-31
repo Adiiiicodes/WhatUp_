@@ -87,6 +87,29 @@ class ApiClient {
     return this.request<User>('/api/auth/me');
   }
 
+  // Google OAuth methods (matching mobile app)
+  async googleNativeAuth(idToken: string) {
+    const res = await this.request<AuthResponse>('/api/auth/google/native', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+    if (res.success && res.data?.token) {
+      this.setToken(res.data.token);
+    }
+    return res;
+  }
+
+  async exchangeGoogleCode(code: string) {
+    const res = await this.request<AuthResponse>('/api/auth/google/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    if (res.success && res.data?.token) {
+      this.setToken(res.data.token);
+    }
+    return res;
+  }
+
   // Users
   async getUsers() {
     return this.request<User[]>('/api/users');

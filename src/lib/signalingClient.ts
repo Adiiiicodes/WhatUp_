@@ -237,6 +237,21 @@ class SocketClient {
     };
   }
 
+  // Cleanup all event handlers
+  cleanup() {
+    this.messageHandlers = [];
+    this.updatedHandlers = [];
+    this.deletedHandlers = [];
+    this.typingHandlers = [];
+    this.statusHandlers = [];
+    this.socket?.removeAllListeners();
+  }
+
+  // Get connection status
+  get connected(): boolean {
+    return this.socket?.connected ?? false;
+  }
+
   isConnected(): boolean {
     return this.socket?.connected ?? false;
   }

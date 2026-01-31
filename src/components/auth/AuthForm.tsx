@@ -1,29 +1,81 @@
 // src/components/auth/AuthForm.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SiGoogle } from 'react-icons/si';
+import { FiEye, FiEyeOff, FiCheck, FiX } from 'react-icons/fi';
 import apiClient from '@/lib/api';
 
 type FormMode = 'login' | 'signup' | 'set-password';
+
+// Password validation rules (matching mobile app)
+const PASSWORD_RULES = {
+  minLength: 8,
+  hasUppercase: /[A-Z]/,
+  hasLowercase: /[a-z]/,
+  hasNumber: /[0-9]/,
+};
+
+interface PasswordStrength {
+  isValid: boolean;
+  hasMinLength: boolean;
+  hasUppercase: boolean;
+  hasLowercase: boolean;
+  hasNumber: boolean;
+}
+
+function validatePassword(password: string): PasswordStrength {
+  return {
+    hasMinLength: password.length >= PASSWORD_RULES.minLength,
+    hasUppercase: PASSWORD_RULES.hasUppercase.test(password),
+    hasLowercase: PASSWORD_RULES.hasLowercase.test(password),
+    hasNumber: PASSWORD_RULES.hasNumber.test(password),
+    get isValid() {
+      return this.hasMinLength && this.hasUppercase && this.hasLowercase && this.hasNumber;
+    },
+  };
+}
 
 export function AuthForm() {
   const [mode, setMode] = useState<FormMode>('login');
   const [formData, setFormData] = useState({
     email: '',
     password: '',
+    confirmPassword: '',
     name: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  const passwordStrength = useMemo(
+    () => validatePassword(formData.password),
+    [formData.password]
+  );
+
+  const passwordsMatch = formData.password === formData.confirmPassword;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+
+    // Validate password for signup
+    if (mode === 'signup') {
+      if (!passwordStrength.isValid) {
+        setError('Password does not meet requirements');
+        return;
+      }
+      if (!passwordsMatch) {
+        setError('Passwords do not match');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
@@ -164,18 +216,79 @@ export function AuthForm() {
               >
                 Password
               </label>
-              <input
-                id="password"
-                type="password"
-                required
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
-                }
-                className="input-chat w-full"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={formData.password}
+                  onChange={(e) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
+                  className="input-chat w-full pr-10"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
+                </button>
+              </div>
             </div>
+
+            {/* Password Requirements (signup only) */}
+            {mode === 'signup' && formData.password && (
+              <div className="space-y-1.5 text-xs">
+                <p className="text-[var(--text-secondary)] font-medium mb-1">Password must have:</p>
+                <div className="grid grid-cols-2 gap-1">
+                  <PasswordRule met={passwordStrength.hasMinLength} text="8+ characters" />
+                  <PasswordRule met={passwordStrength.hasUppercase} text="Uppercase letter" />
+                  <PasswordRule met={passwordStrength.hasLowercase} text="Lowercase letter" />
+                  <PasswordRule met={passwordStrength.hasNumber} text="Number" />
+                </div>
+              </div>
+            )}
+
+            {/* Confirm Password (signup only) */}
+            {mode === 'signup' && (
+              <div>
+                <label
+                  htmlFor="confirmPassword"
+                  className="block text-sm font-medium text-[var(--text-primary)] mb-2"
+                >
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    value={formData.confirmPassword}
+                    onChange={(e) =>
+                      setFormData({ ...formData, confirmPassword: e.target.value })
+                    }
+                    className={`input-chat w-full pr-10 ${
+                      formData.confirmPassword && !passwordsMatch
+                        ? 'border-red-500 focus:border-red-500'
+                        : ''
+                    }`}
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  >
+                    {showConfirmPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
+                  </button>
+                </div>
+                {formData.confirmPassword && !passwordsMatch && (
+                  <p className="text-red-500 text-xs mt-1">Passwords do not match</p>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-500/10 border border-red-500 text-red-500 px-4 py-3 rounded-lg text-sm">
@@ -245,6 +358,16 @@ export function AuthForm() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Helper component for password requirements
+function PasswordRule({ met, text }: { met: boolean; text: string }) {
+  return (
+    <div className={`flex items-center gap-1.5 ${met ? 'text-green-500' : 'text-[var(--text-tertiary)]'}`}>
+      {met ? <FiCheck size={12} /> : <FiX size={12} />}
+      <span>{text}</span>
     </div>
   );
 }

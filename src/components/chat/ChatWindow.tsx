@@ -3,14 +3,13 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { User, Conversation, Message } from '@/types/chat';
-import { Send, Paperclip, Smile, MoreVertical, Image, FileText, Mic, ArrowLeft, X, Play, Square } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
-import dynamic from 'next/dynamic';
-import type { EmojiClickData } from 'emoji-picker-react';
-import { Theme } from 'emoji-picker-react';
+import { ChatHeader } from './ChatHeader';
+import { InputBar } from './InputBar';
+import { AttachmentSheet } from './AttachmentSheet';
+import { DateSeparator, isSameDay } from './DateSeparator';
+import { ImageViewer } from './ImageViewer';
 import apiClient from '@/lib/api';
-
-const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
 interface ChatWindowProps {
   currentUser: User;
@@ -25,11 +24,9 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
   const previousMessagesLengthRef = useRef(0);
   const shouldAutoScrollRef = useRef(true);
 
@@ -48,22 +45,10 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const recordingIntervalRef = useRef<number | null>(null);
   const uploadPromiseRef = useRef<Promise<void> | null>(null);
 
-  const onEmojiClick = (emojiData: EmojiClickData) => {
-    setNewMessage(prev => prev + emojiData.emoji);
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
-        setShowEmojiPicker(false);
-      }
-    };
-
-    if (showEmojiPicker) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showEmojiPicker]);
+  // Image viewer state
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null);
+  const [viewerImageInfo, setViewerImageInfo] = useState<{ fileName?: string; fileSize?: number } | null>(null);
 
   // Helper to extract id from a string, Object-like, or other value
   const idOf = (v: unknown): string => {
@@ -487,73 +472,94 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     }
   };
 
+  // Image viewer handlers
+  const handleImageClick = (imageUrl: string, metadata?: { fileName?: string; fileSize?: number }) => {
+    setViewerImageUrl(imageUrl);
+    setViewerImageInfo(metadata || null);
+    setImageViewerOpen(true);
+  };
+
+  const handleCloseImageViewer = () => {
+    setImageViewerOpen(false);
+    setViewerImageUrl(null);
+    setViewerImageInfo(null);
+  };
+
+  // Attachment menu handlers
+  const handleAttachPhoto = () => {
+    triggerFileInput('image/*', 'image');
+    setShowAttachMenu(false);
+  };
+
+  const handleAttachDocument = () => {
+    triggerFileInput('.pdf,.doc,.docx,.txt,.xls,.xlsx', 'document');
+    setShowAttachMenu(false);
+  };
+
+  const handleAttachCamera = () => {
+    triggerFileInput('image/*;capture=camera', 'image');
+    setShowAttachMenu(false);
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-[var(--bg-primary)] h-screen">
       {/* Chat Header */}
-      <div className="h-[70px] px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] backdrop-blur-sm z-10 shrink-0">
-        <div className="flex items-center gap-4 flex-1 min-w-0">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="lg:hidden p-2 hover:bg-[var(--bg-hover)] rounded-full transition-colors flex-shrink-0"
-              aria-label="Back to chats"
-            >
-              <ArrowLeft size={20} className="text-[var(--text-secondary)]" strokeWidth={1.5} />
-            </button>
-          )}
-          <div className="relative flex-shrink-0">
-             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-purple-600 flex items-center justify-center text-white font-semibold shadow-sm">
-              {otherUser?.name ? otherUser.name.charAt(0).toUpperCase() : '?'}
-            </div>
-            {otherUser?.status === 'online' && (
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-[var(--bg-secondary)] rounded-full shadow-sm"></span>
-            )}
-          </div>
-          <div className="flex flex-col">
-            <h3 className="text-[var(--text-primary)] font-semibold text-base leading-tight truncate">
-              {otherUser?.name ?? 'Unknown'}
-            </h3>
-            <span className="text-xs text-[var(--text-secondary)] font-medium truncate">
-              {otherUser?.status === 'online' ? 'Online' : 'Offline'}
-            </span>
-          </div>
-        </div>
-         <div className="flex items-center gap-2">
-          {/* Add more header actions if needed, for now just the menu */}
-          <button className="p-2.5 hover:bg-[var(--bg-hover)] rounded-full transition-colors flex-shrink-0 text-[var(--text-secondary)]">
-            <MoreVertical size={20} strokeWidth={1.5} />
-          </button>
-        </div>
-      </div>
+      <ChatHeader
+        user={otherUser}
+        isTyping={false}
+        onBackPress={onBack}
+      />
 
       {/* Messages Area */}
       <div 
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-[var(--bg-primary)] scrollbar-thin"
+        className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-1 bg-[var(--bg-primary)] scrollbar-thin"
       >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--text-tertiary)] animate-in fade-in duration-500">
             <div className="w-16 h-16 rounded-2xl bg-[var(--bg-secondary)] flex items-center justify-center mb-4">
-               <Smile size={32} strokeWidth={1.5} />
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                <line x1="9" y1="9" x2="9.01" y2="9" />
+                <line x1="15" y1="9" x2="15.01" y2="9" />
+              </svg>
             </div>
             <p className="font-medium">No messages yet</p>
             <p className="text-sm mt-1">Say hello to start the conversation!</p>
           </div>
         ) : (
-          messages.map((message) => {
+          messages.map((message, index) => {
             const key = idOf(message._id || (message as unknown as Record<string, unknown>).id);
             const senderId = idOf((message as Message).senderId);
+            const prevMessage = index > 0 ? messages[index - 1] : null;
+            const currentDate = new Date(message.createdAt || message.timestamp || Date.now());
+            const prevDate = prevMessage ? new Date(prevMessage.createdAt || prevMessage.timestamp || Date.now()) : null;
+            const showDateSeparator = !prevDate || !isSameDay(currentDate, prevDate);
+            
             return (
-              <MessageBubble
-                key={key || Math.random().toString(36).slice(2)}
-                message={message}
-                isOwn={senderId === idOf(currentUser._id)}
-              />
+              <div key={key || Math.random().toString(36).slice(2)}>
+                {showDateSeparator && <DateSeparator date={currentDate} />}
+                <MessageBubble
+                  message={message}
+                  isOwn={senderId === idOf(currentUser._id)}
+                  onImageClick={(url) => handleImageClick(url, message.mediaMetadata)}
+                />
+              </div>
             );
           })
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Attachment Sheet */}
+      <AttachmentSheet
+        isOpen={showAttachMenu}
+        onClose={() => setShowAttachMenu(false)}
+        onPickImage={handleAttachPhoto}
+        onPickDocument={handleAttachDocument}
+        onTakePhoto={handleAttachCamera}
+      />
 
       {/* Media Preview & Upload Progress */}
       {(previewUrl || uploading || isRecording) && (
@@ -561,8 +567,10 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
           {isRecording ? (
             <div className="flex items-center gap-4 bg-[var(--bg-tertiary)] p-3 rounded-lg">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
-                  <Mic size={18} className="text-white" />
+                <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center animate-[recordingPulse_1.5s_ease-in-out_infinite]">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  </svg>
                 </div>
                 <div>
                   <div className="text-[var(--text-primary)] font-medium">
@@ -577,13 +585,15 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
                   onClick={stopRecording}
                   className="px-3 py-1.5 bg-green-500 hover:bg-green-600 rounded-lg text-white text-sm flex items-center gap-1"
                 >
-                  <Square size={14} /> Done
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  Done
                 </button>
                 <button
                   onClick={cancelRecording}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 rounded-lg text-white text-sm flex items-center gap-1"
                 >
-                  <X size={14} /> Cancel
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  Cancel
                 </button>
               </div>
             </div>
@@ -610,7 +620,9 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
                 {uploadedMediaType === 'audio' && (
                   <div className="w-full bg-[var(--bg-tertiary)] p-3 rounded-lg flex items-center gap-4">
                     <div className="w-12 h-12 bg-[var(--accent-primary)] rounded-full flex items-center justify-center">
-                      <Mic size={20} className="text-white" />
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      </svg>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -630,7 +642,10 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
                 {/* File Preview */}
                 {uploadedMediaType === 'file' && (
                   <div className="flex items-center gap-3 p-3 bg-[var(--bg-tertiary)] rounded-lg">
-                    <FileText size={28} className="text-blue-500 flex-shrink-0" />
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-blue-500 flex-shrink-0">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
                     <div className="min-w-0">
                       <div className="text-[var(--text-primary)] truncate">{selectedFile?.name}</div>
                       <div className="text-xs text-[var(--text-secondary)]">
@@ -644,7 +659,9 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
                   onClick={handleCancelUpload}
                   className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition"
                 >
-                  <X size={12} />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
                 </button>
               </div>
             )
@@ -669,119 +686,31 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       )}
 
       {/* Message Input */}
-      <div className="p-4 sm:p-6 bg-[var(--bg-secondary)] border-t border-[var(--border-primary)]">
-        <form onSubmit={handleSendMessage} className="relative flex items-end gap-2 bg-[var(--bg-tertiary)] p-2 rounded-2xl border border-[var(--border-primary)] focus-within:ring-2 focus-within:ring-[var(--accent-primary)]/20 focus-within:border-[var(--accent-primary)] transition-all">
-          <div className="relative flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowAttachMenu(!showAttachMenu)}
-              className={`p-2.5 rounded-xl transition-colors ${showAttachMenu ? 'bg-[var(--accent-primary)] text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'}`}
-            >
-              <Paperclip size={20} className="rotate-45" strokeWidth={1.5} />
-            </button>
-            
-            {showAttachMenu && (
-              <div className="absolute bottom-full left-0 mb-3 bg-[var(--bg-secondary)] rounded-xl shadow-xl border border-[var(--border-primary)] p-2 min-w-[180px] animate-in slide-in-from-bottom-2 duration-200 z-50">
-                <div className="grid grid-cols-1 gap-1">
-                <button
-                  type="button"
-                  onClick={() => triggerFileInput('image/*', 'image')}
-                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center">
-                    <Image size={16} className="text-purple-500" />
-                  </div>
-                  <span className="text-sm font-medium">Image</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => triggerFileInput('video/*', 'document')}
-                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full bg-pink-500/10 flex items-center justify-center">
-                    <Play size={16} className="text-pink-500" />
-                  </div>
-                  <span className="text-sm font-medium">Video</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => triggerFileInput('.pdf,.doc,.docx,.txt,.xls,.xlsx', 'document')}
-                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center">
-                     <FileText size={16} className="text-blue-500" />
-                  </div>
-                  <span className="text-sm font-medium">Document</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => triggerFileInput('audio/*', 'voice')}
-                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-primary)] transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center">
-                    <Mic size={16} className="text-red-500" />
-                  </div>
-                  <span className="text-sm font-medium">Audio</span>
-                </button>
-                </div>
-              </div>
-            )}
-          </div>
+      <InputBar
+        value={newMessage}
+        onChangeText={setNewMessage}
+        onSend={() => { handleSendMessage({ preventDefault: () => {} } as React.FormEvent); }}
+        onAttachPress={() => setShowAttachMenu(true)}
+        onMicPressIn={startRecording}
+        onMicPressOut={stopRecording}
+        onEmojiPress={() => {}}
+        isSending={loading}
+        isRecording={isRecording}
+        disabled={loading || uploading}
+        placeholder={uploadedMediaUrl ? 'Add a caption (optional)' : 'Type a message...'}
+      />
 
-          <input type="file" ref={fileInputRef} className="hidden" />
+      {/* Image Viewer Modal */}
+      <ImageViewer
+        src={viewerImageUrl || ''}
+        isOpen={imageViewerOpen}
+        fileName={viewerImageInfo?.fileName}
+        fileSize={viewerImageInfo?.fileSize}
+        onClose={handleCloseImageViewer}
+      />
 
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] py-3 px-2 outline-none text-base placeholder:text-[var(--text-tertiary)]"
-            disabled={loading || uploading}
-          />
-
-          <div className="flex items-center gap-1 pb-1">
-             <div className="relative" ref={emojiPickerRef}>
-              <button
-                type="button"
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className={`p-2.5 rounded-xl transition-colors ${showEmojiPicker ? 'text-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'}`}
-              >
-                <Smile size={20} strokeWidth={1.5} />
-              </button>
-              {showEmojiPicker && (
-                <div className="absolute bottom-full right-0 mb-4 z-50 shadow-2xl rounded-2xl overflow-hidden border border-[var(--border-primary)]">
-                  <EmojiPicker
-                    onEmojiClick={onEmojiClick}
-                    theme={Theme.DARK}
-                    width={320}
-                    height={400}
-                    searchPlaceHolder="Search emoji"
-                    previewConfig={{ showPreview: false }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {!newMessage.trim() && !uploadedMediaUrl && !selectedFile && !isRecording ? (
-               <button
-                type="button"
-                onClick={startRecording}
-                className="p-2.5 hover:bg-[var(--bg-hover)] rounded-xl transition-colors text-[var(--text-secondary)] hover:text-[var(--accent-primary)]"
-              >
-                <Mic size={20} strokeWidth={1.5} />
-              </button>
-            ) : (
-               <button
-                type="submit"
-                disabled={(!newMessage.trim() && !uploadedMediaUrl && !selectedFile) || loading || uploading}
-                className="p-2.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Send size={18} className="text-white ml-0.5" strokeWidth={2} />
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
+      {/* Hidden file input */}
+      <input type="file" ref={fileInputRef} className="hidden" />
     </div>
   );
 }
