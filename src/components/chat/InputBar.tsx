@@ -22,6 +22,7 @@ interface InputBarProps {
   onMicPressOut: () => void;
   isSending?: boolean;
   isRecording?: boolean;
+  hasMedia?: boolean;
   placeholder?: string;
   maxLength?: number;
   disabled?: boolean;
@@ -38,6 +39,7 @@ export function InputBar({
   onMicPressOut,
   isSending = false,
   isRecording = false,
+  hasMedia = false,
   placeholder = 'Type a message',
   maxLength = 1000,
   disabled = false,
@@ -45,6 +47,7 @@ export function InputBar({
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasText = value.trim().length > 0;
+  const canSend = hasText || hasMedia;
 
   // Auto-resize textarea
   useEffect(() => {
@@ -58,21 +61,17 @@ export function InputBar({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (hasText && !isSending) {
+      if (canSend && !isSending) {
         onSend();
       }
     }
   };
 
-  const handleMicMouseDown = () => {
-    if (!hasText) {
-      onMicPressIn();
-    }
-  };
-
-  const handleMicMouseUp = () => {
+  const handleMicClick = () => {
     if (isRecording) {
-      onMicPressOut();
+      onMicPressOut(); // Stop recording
+    } else if (!canSend) {
+      onMicPressIn(); // Start recording
     }
   };
 
@@ -137,8 +136,8 @@ export function InputBar({
 
       {/* Right side - Camera or Send/Mic button */}
       <div className="flex items-center gap-1">
-        {/* Camera button (only show when no text) */}
-        {!hasText && onCameraPress && (
+        {/* Camera button (only show when no text and no media) */}
+        {!canSend && !isRecording && onCameraPress && (
           <button
             onClick={onCameraPress}
             disabled={disabled}
@@ -149,40 +148,38 @@ export function InputBar({
           </button>
         )}
 
-        {/* Send or Mic button */}
-        <button
-          onClick={hasText ? onSend : undefined}
-          onMouseDown={!hasText ? handleMicMouseDown : undefined}
-          onMouseUp={!hasText ? handleMicMouseUp : undefined}
-          onMouseLeave={!hasText ? handleMicMouseUp : undefined}
-          onTouchStart={!hasText ? handleMicMouseDown : undefined}
-          onTouchEnd={!hasText ? handleMicMouseUp : undefined}
-          disabled={disabled || isSending}
-          className={`p-2.5 rounded-full transition-all transform ${
-            hasText
-              ? 'bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] scale-100'
-              : isRecording
-                ? 'bg-[var(--danger)] scale-110'
-                : 'hover:bg-[var(--bg-hover)]'
-          } disabled:opacity-50`}
-          aria-label={hasText ? 'Send message' : 'Record voice message'}
-        >
-          {hasText ? (
+        {/* Send button (show when there's text or media) */}
+        {canSend && !isRecording ? (
+          <button
+            onClick={onSend}
+            disabled={disabled || isSending}
+            className="p-2.5 rounded-full bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] transition-all transform scale-100 disabled:opacity-50"
+            aria-label="Send message"
+          >
             <FiSend 
               size={20} 
               className={`text-white transition-transform ${isSending ? 'animate-pulse' : ''}`}
             />
-          ) : (
-            <FiMic 
-              size={22} 
-              className={`transition-colors ${
-                isRecording 
-                  ? 'text-white animate-pulse' 
-                  : 'text-[var(--icon-secondary)]'
-              }`}
-            />
-          )}
-        </button>
+          </button>
+        ) : (
+          /* Mic button (show when no text/media, click to toggle recording) */
+          <button
+            onClick={handleMicClick}
+            disabled={disabled || isSending}
+            className={`p-2.5 rounded-full transition-all transform ${
+              isRecording
+                ? 'bg-[var(--danger)] scale-110 animate-pulse'
+                : 'hover:bg-[var(--bg-hover)]'
+            } disabled:opacity-50`}
+            aria-label={isRecording ? 'Stop recording' : 'Record voice message'}
+          >
+            {isRecording ? (
+              <FiX size={22} className="text-white" />
+            ) : (
+              <FiMic size={22} className="text-[var(--icon-secondary)]" />
+            )}
+          </button>
+        )}
       </div>
     </div>
   );

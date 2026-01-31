@@ -418,7 +418,7 @@ export function ChatSidebar({
 
                   <div className="relative shrink-0">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white font-semibold shadow-inner">
-                      {otherUser.name.charAt(0).toUpperCase()}
+                      {(otherUser.name || otherUser.email || '?').charAt(0).toUpperCase()}
                     </div>
                     {otherUser.status === 'online' && (
                       <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-[var(--online-status)] border-[2.5px] border-[var(--bg-secondary)] rounded-full shadow-sm animate-[pulseOnline_2s_ease-in-out_infinite]"></div>
@@ -428,7 +428,7 @@ export function ChatSidebar({
                   <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                     <div className="flex items-center justify-between">
                       <div className={`font-semibold text-sm truncate ${isSelected ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]/90'}`}>
-                        <HighlightedText text={otherUser.name} highlight={searchQuery} />
+                        <HighlightedText text={otherUser.name || otherUser.email || 'Unknown'} highlight={searchQuery} />
                       </div>
                       {lastMsg && (lastMsg.createdAt || lastMsg.timestamp) && (
                         <div className={`text-[11px] font-medium transition-colors ${hasUnread ? 'text-[var(--accent-primary)]' : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'}`}>

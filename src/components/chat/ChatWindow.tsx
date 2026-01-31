@@ -40,11 +40,18 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
+  const [voiceRecordingReady, setVoiceRecordingReady] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const recordingIntervalRef = useRef<number | null>(null);
   const uploadPromiseRef = useRef<Promise<void> | null>(null);
+
+  // Emoji picker state
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
 
   // Image viewer state
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
@@ -416,9 +423,39 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     setPreviewUrl(null);
     setUploadProgress(0);
     setUploading(false);
+    setVoiceRecordingReady(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  // Emoji picker - close on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        showEmojiPicker &&
+        emojiPickerRef.current &&
+        !emojiPickerRef.current.contains(event.target as Node) &&
+        emojiButtonRef.current &&
+        !emojiButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showEmojiPicker]);
+
+  // Common emojis for quick picker
+  const commonEmojis = [
+    '😀', '😂', '😍', '🥰', '😊', '😎', '🤔', '😢',
+    '😡', '🥳', '😴', '🤗', '😇', '🤩', '😋', '😜',
+    '👍', '👎', '❤️', '🔥', '✨', '🎉', '💯', '🙏',
+    '👋', '👏', '🤝', '💪', '✌️', '🤞', '🫶', '💀',
+  ];
+
+  const insertEmoji = (emoji: string) => {
+    setNewMessage((prev) => prev + emoji);
   };
 
   // Format file size
@@ -432,26 +469,56 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   // Voice recording functions
   const startRecording = async () => {
     try {
+      console.log('[ChatWindow] Starting voice recording...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      audioStreamRef.current = stream;
+      
+      // Prefer webm/opus, fallback to other formats
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+        ? 'audio/webm;codecs=opus' 
+        : MediaRecorder.isTypeSupported('audio/webm') 
+          ? 'audio/webm' 
+          : 'audio/mp4';
+      
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       recordedChunksRef.current = [];
+      setVoiceRecordingReady(false);
 
       mediaRecorder.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data);
+        console.log('[ChatWindow] ondataavailable:', ev.data?.size);
+        if (ev.data && ev.data.size > 0) {
+          recordedChunksRef.current.push(ev.data);
+        }
       };
 
       mediaRecorder.onstop = async () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+        console.log('[ChatWindow] MediaRecorder stopped, chunks:', recordedChunksRef.current.length);
+        
+        // Stop all tracks
+        if (audioStreamRef.current) {
+          audioStreamRef.current.getTracks().forEach((t) => t.stop());
+          audioStreamRef.current = null;
+        }
+        
+        if (recordedChunksRef.current.length === 0) {
+          console.log('[ChatWindow] No audio data recorded');
+          return;
+        }
+        
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
         const file = new File([blob], `${Date.now()}_voice.webm`, { type: blob.type });
-        stream.getTracks().forEach((t) => t.stop());
+        
+        console.log('[ChatWindow] Created audio file:', file.name, file.size, 'bytes');
 
         // Create local preview
         const preview = URL.createObjectURL(blob);
         setSelectedFile(file);
         setPreviewUrl(preview);
         setUploadedMediaType('audio');
-        const duration = await getAudioDuration(file);
+        
+        const duration = recordingSeconds;
         setUploadedMediaMetadata({ fileSize: file.size, mimeType: file.type, duration, fileName: file.name });
+        setVoiceRecordingReady(true);
 
         // Start upload in background
         uploadMedia(file, 'voice').catch((err) => {
@@ -460,21 +527,31 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       };
 
       mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
+      
+      // Request data every second to ensure we capture audio
+      mediaRecorder.start(1000);
+      
       setIsRecording(true);
       setRecordingSeconds(0);
       recordingIntervalRef.current = window.setInterval(() => {
         setRecordingSeconds((s) => s + 1);
       }, 1000) as unknown as number;
+      
+      console.log('[ChatWindow] Recording started successfully');
     } catch (err) {
       console.error('[ChatWindow] startRecording failed', err);
-      alert('Unable to access microphone.');
+      alert('Unable to access microphone. Please check permissions.');
     }
   };
 
   const stopRecording = () => {
+    console.log('[ChatWindow] Stopping recording...');
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== 'inactive') {
+      // Request any remaining data before stopping
+      if (mr.state === 'recording') {
+        mr.requestData();
+      }
       mr.stop();
     }
     setIsRecording(false);
@@ -482,20 +559,30 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       clearInterval(recordingIntervalRef.current);
       recordingIntervalRef.current = null;
     }
+    console.log('[ChatWindow] Recording stopped');
   };
 
   const cancelRecording = () => {
+    console.log('[ChatWindow] Canceling recording...');
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== 'inactive') {
       try {
+        // Clear chunks before stopping to prevent onstop from processing
+        recordedChunksRef.current = [];
         mr.stop();
       } catch (e) {
         console.log('[ChatWindow] cancelRecording stop error', e);
       }
     }
+    // Stop audio stream
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current = null;
+    }
     recordedChunksRef.current = [];
     setIsRecording(false);
     setRecordingSeconds(0);
+    setVoiceRecordingReady(false);
     if (recordingIntervalRef.current) {
       clearInterval(recordingIntervalRef.current);
       recordingIntervalRef.current = null;
@@ -728,6 +815,30 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         </div>
       )}
 
+      {/* Emoji Picker */}
+      {showEmojiPicker && (
+        <div
+          ref={emojiPickerRef}
+          className="absolute bottom-20 left-4 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl p-3 shadow-xl z-50 w-[280px]"
+        >
+          <div className="text-xs text-[var(--text-tertiary)] mb-2 font-medium">Quick Emojis</div>
+          <div className="grid grid-cols-8 gap-1">
+            {commonEmojis.map((emoji, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  insertEmoji(emoji);
+                  setShowEmojiPicker(false);
+                }}
+                className="w-8 h-8 flex items-center justify-center text-xl hover:bg-[var(--bg-hover)] rounded transition-colors"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Message Input */}
       <InputBar
         value={newMessage}
@@ -741,9 +852,10 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         onAttachPress={() => setShowAttachMenu(true)}
         onMicPressIn={startRecording}
         onMicPressOut={stopRecording}
-        onEmojiPress={() => {}}
+        onEmojiPress={() => setShowEmojiPicker(!showEmojiPicker)}
         isSending={loading}
         isRecording={isRecording}
+        hasMedia={!!selectedFile || !!uploadedMediaUrl || !!previewUrl || voiceRecordingReady}
         disabled={loading || uploading}
         placeholder={uploadedMediaUrl ? 'Add a caption (optional)' : 'Type a message...'}
       />
