@@ -78,6 +78,10 @@ export interface Message extends BaseMessage {
   height?: number;
   mimeType?: string;
   mediaMetadata?: MediaMetadata;
+  // Deletion fields (WhatsApp-style)
+  deletedAt?: Date;
+  deletedForEveryone?: boolean;
+  deletedBy?: string[];
 }
 
 // Type guards for message types

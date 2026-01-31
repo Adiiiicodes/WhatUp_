@@ -197,10 +197,14 @@ class ApiClient {
     const timer = this.log.time(`request:${endpoint}`);
 
     const headers: HeadersInit = {
-      'Content-Type': 'application/json',
       'X-Request-ID': requestId,
       ...options.headers,
     };
+
+    // Only set Content-Type for requests with a body
+    if (options.body) {
+      (headers as Record<string, string>)['Content-Type'] = 'application/json';
+    }
 
     if (token) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
@@ -456,8 +460,8 @@ class ApiClient {
     });
   }
 
-  async deleteMessage(messageId: string, conversationId: string) {
-    return this.request<{ deleted: boolean }>(`/api/messages/${messageId}?conversationId=${conversationId}`, {
+  async deleteMessage(messageId: string, conversationId: string, deleteForEveryone: boolean = false) {
+    return this.request<{ deleted: boolean }>(`/api/messages/${messageId}?conversationId=${conversationId}&deleteForEveryone=${deleteForEveryone}`, {
       method: 'DELETE',
     });
   }

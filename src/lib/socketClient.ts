@@ -62,6 +62,7 @@ export interface UpdatedMessageEvent {
 export interface DeletedMessageEvent {
   messageId: string;
   conversationId: string;
+  deletedForEveryone: boolean;
 }
 
 export interface TypingEvent {
@@ -99,7 +100,7 @@ export interface ClientToServerEvents {
   'conversation:leave': (payload: { conversationId: string }, callback: (response: SocketResponse) => void) => void;
   'message:send': (payload: MessagePayload, callback: (response: MessageResponse) => void) => void;
   'message:edit': (payload: EditMessagePayload, callback: (response: SocketResponse) => void) => void;
-  'message:delete': (payload: { messageId: string; conversationId: string }, callback: (response: SocketResponse) => void) => void;
+  'message:delete': (payload: { messageId: string; conversationId: string; deleteForEveryone?: boolean }, callback: (response: SocketResponse) => void) => void;
   'message:mark-read': (payload: { conversationId: string }, callback: (response: SocketResponse) => void) => void;
   'typing:start': (payload: { conversationId: string }) => void;
   'typing:stop': (payload: { conversationId: string }) => void;
@@ -492,15 +493,15 @@ class SocketClient {
     });
   }
 
-  async deleteMessage(messageId: string, conversationId: string): Promise<boolean> {
+  async deleteMessage(messageId: string, conversationId: string, deleteForEveryone: boolean = false): Promise<boolean> {
     return new Promise((resolve) => {
       if (!this.socket?.connected) {
-        this.queueMessage({ type: 'delete', payload: { messageId, conversationId } });
+        this.queueMessage({ type: 'delete', payload: { messageId, conversationId, deleteForEveryone } });
         resolve(false);
         return;
       }
 
-      this.socket.emit('message:delete', { messageId, conversationId }, (response) => {
+      this.socket.emit('message:delete', { messageId, conversationId, deleteForEveryone }, (response) => {
         resolve(response.success);
       });
     });

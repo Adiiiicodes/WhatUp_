@@ -1,11 +1,14 @@
 // src/components/chat/MessageBubble.tsx
 import { Message } from '@/types/chat';
-import { Download, FileText, Trash2, CheckCheck, Check, MoreVertical, Copy, Reply, Forward } from 'lucide-react';
-import { useState, useEffect, useRef, memo } from 'react';
+import { Download, FileText, Trash2, CheckCheck, Check, MoreVertical, Copy, Reply, Forward, Ban, Clock } from 'lucide-react';
+import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import apiClient from '@/lib/api';
 import { VoiceMessageBubble } from './VoiceMessageBubble';
 import { logger } from '@/lib/logger';
 import { formatFileSize, copyToClipboard } from '@/lib/utils';
+
+// WhatsApp-style: 1 hour 8 minutes time window for "delete for everyone"
+const DELETE_FOR_EVERYONE_WINDOW_MS = 68 * 60 * 1000;
 
 interface MessageBubbleProps {
   message: Message;
@@ -22,8 +25,21 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
   const [showTimestamp, setShowTimestamp] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Check if message is deleted
+  const isDeleted = message.deletedForEveryone === true;
+
+  // Check if "delete for everyone" is still available (within time window)
+  const canDeleteForEveryone = useMemo(() => {
+    if (!isOwn) return false;
+    const messageTime = new Date(message.createdAt || message.timestamp || Date.now()).getTime();
+    const now = Date.now();
+    return now - messageTime < DELETE_FOR_EVERYONE_WINDOW_MS;
+  }, [isOwn, message.createdAt, message.timestamp]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -66,19 +82,26 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
     onReply?.(message);
   };
 
-  const handleDelete = async () => {
+  // Open delete confirmation modal
+  const openDeleteModal = () => {
     setShowMenu(false);
-    if (!confirm('Delete this message for everyone?')) return;
+    setShowContextMenu(false);
+    setShowDeleteModal(true);
+  };
+
+  // Handle delete for me only
+  const handleDeleteForMe = async () => {
     if (!conversationId) {
       log.warn({ messageId: message._id }, 'Cannot delete: conversation ID missing');
       alert('Cannot delete: conversation ID missing');
       return;
     }
+    setIsDeleting(true);
     try {
-      const res = await apiClient.deleteMessage(message._id, conversationId);
+      const res = await apiClient.deleteMessage(message._id, conversationId, false);
       if (res.success) {
-        log.info({ messageId: message._id }, 'Message deleted');
-        window.dispatchEvent(new CustomEvent('message:deleted', { detail: { id: message._id } }));
+        log.info({ messageId: message._id }, 'Message deleted for me');
+        window.dispatchEvent(new CustomEvent('message:deleted', { detail: { id: message._id, forEveryone: false } }));
         window.dispatchEvent(new CustomEvent('conversations:refresh'));
       } else {
         const errorMsg = typeof res.error === 'string' ? res.error : res.error?.message || 'Failed to delete message';
@@ -88,6 +111,37 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
     } catch (e) {
       log.error({ error: e, messageId: message._id }, 'Delete error');
       alert('Delete failed');
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
+  // Handle delete for everyone
+  const handleDeleteForEveryone = async () => {
+    if (!conversationId) {
+      log.warn({ messageId: message._id }, 'Cannot delete: conversation ID missing');
+      alert('Cannot delete: conversation ID missing');
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const res = await apiClient.deleteMessage(message._id, conversationId, true);
+      if (res.success) {
+        log.info({ messageId: message._id }, 'Message deleted for everyone');
+        window.dispatchEvent(new CustomEvent('message:deleted', { detail: { id: message._id, forEveryone: true } }));
+        window.dispatchEvent(new CustomEvent('conversations:refresh'));
+      } else {
+        const errorMsg = typeof res.error === 'string' ? res.error : res.error?.message || 'Failed to delete message';
+        log.warn({ messageId: message._id, error: errorMsg }, 'Failed to delete message');
+        alert(errorMsg);
+      }
+    } catch (e) {
+      log.error({ error: e, messageId: message._id }, 'Delete error');
+      alert('Delete failed');
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -108,7 +162,24 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
     return message.duration || message.mediaMetadata?.duration || 0;
   };
 
+  // Render deleted message placeholder
+  const renderDeletedContent = () => {
+    return (
+      <div className="flex items-center gap-2 text-[var(--text-secondary)] italic">
+        <Ban size={14} />
+        <span className="text-sm">
+          {isOwn ? 'You deleted this message' : 'This message was deleted'}
+        </span>
+      </div>
+    );
+  };
+
   const renderContent = () => {
+    // If message is deleted, show placeholder
+    if (isDeleted) {
+      return renderDeletedContent();
+    }
+
     switch (message.type) {
       case 'text':
         return (
@@ -225,16 +296,18 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
 
         {/* Message Bubble */}
         <div
-          onContextMenu={handleContextMenu}
+          onContextMenu={!isDeleted ? handleContextMenu : undefined}
           onClick={() => setShowTimestamp(!showTimestamp)}
           className={`relative px-3 py-2 shadow-sm border cursor-pointer select-none ${
-            isOwn 
-              ? 'bg-gradient-to-br from-[var(--accent-primary)] to-[#006a5c] text-white rounded-2xl rounded-tr-sm border-[var(--accent-primary)]' 
-              : 'bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-2xl rounded-tl-sm border-[var(--border-primary)]'
+            isDeleted
+              ? 'bg-[var(--bg-secondary)] border-[var(--border-primary)] rounded-2xl opacity-70'
+              : isOwn 
+                ? 'bg-gradient-to-br from-[var(--accent-primary)] to-[#006a5c] text-white rounded-2xl rounded-tr-sm border-[var(--accent-primary)]' 
+                : 'bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-2xl rounded-tl-sm border-[var(--border-primary)]'
           }`}
         >
           {/* Edited indicator */}
-          {message.isEdited && (
+          {message.isEdited && !isDeleted && (
             <span className="text-[10px] text-[var(--text-secondary)] italic mr-1">(edited)</span>
           )}
           
@@ -268,48 +341,48 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
           )}
         </div>
 
-        {/* Action Menu (hover) */}
-        <div className={`relative mb-2 opacity-0 group-hover:opacity-100 transition-opacity ${isOwn ? 'mr-1' : 'ml-1'}`} ref={menuRef}>
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-1 hover:bg-[var(--bg-hover)] rounded-full transition-colors text-[var(--text-secondary)]"
-            aria-label="message options"
-          >
-            <MoreVertical size={14} />
-          </button>
-          {showMenu && (
-            <div className={`absolute bottom-full mb-2 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl shadow-lg min-w-[140px] py-1 z-50 overflow-hidden text-left ${isOwn ? 'right-0' : 'left-0'}`}>
-              {message.type === 'text' && (
+        {/* Action Menu (hover) - hide for deleted messages */}
+        {!isDeleted && (
+          <div className={`relative mb-2 opacity-0 group-hover:opacity-100 transition-opacity ${isOwn ? 'mr-1' : 'ml-1'}`} ref={menuRef}>
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-1 hover:bg-[var(--bg-hover)] rounded-full transition-colors text-[var(--text-secondary)]"
+              aria-label="message options"
+            >
+              <MoreVertical size={14} />
+            </button>
+            {showMenu && (
+              <div className={`absolute bottom-full mb-2 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl shadow-lg min-w-[140px] py-1 z-50 overflow-hidden text-left ${isOwn ? 'right-0' : 'left-0'}`}>
+                {message.type === 'text' && (
+                  <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    <Copy size={14} />
+                    <span>Copy</span>
+                  </button>
+                )}
                 <button
-                  onClick={handleCopy}
+                  onClick={handleReply}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
                 >
-                  <Copy size={14} />
-                  <span>Copy</span>
+                  <Reply size={14} />
+                  <span>Reply</span>
                 </button>
-              )}
-              <button
-                onClick={handleReply}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-              >
-                <Reply size={14} />
-                <span>Reply</span>
-              </button>
-              {isOwn && (
                 <button
-                  onClick={handleDelete} 
+                  onClick={openDeleteModal} 
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
                 >
                   <Trash2 size={14} />
                   <span>Delete</span>
                 </button>
-              )}
-            </div>
-          )}
-        </div>
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Right-click context menu */}
-        {showContextMenu && (
+        {showContextMenu && !isDeleted && (
           <div 
             ref={contextMenuRef}
             style={{ 
@@ -343,18 +416,82 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
               <Forward size={16} />
               <span>Forward</span>
             </button>
-            {isOwn && (
-              <>
-                <div className="border-t border-[var(--border-primary)] my-1" />
+            <div className="border-t border-[var(--border-primary)] my-1" />
+            <button
+              onClick={openDeleteModal} 
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+            >
+              <Trash2 size={16} />
+              <span>Delete</span>
+            </button>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && (
+          <div 
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200]"
+            onClick={() => !isDeleting && setShowDeleteModal(false)}
+          >
+            <div 
+              className="bg-[var(--bg-primary)] rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-[var(--border-primary)]">
+                <h3 className="text-lg font-semibold text-[var(--text-primary)]">Delete message?</h3>
+              </div>
+              
+              <div className="p-4 space-y-2">
+                {/* Delete for me option */}
                 <button
-                  onClick={handleDelete} 
-                  className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                  onClick={handleDeleteForMe}
+                  disabled={isDeleting}
+                  className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors disabled:opacity-50"
                 >
-                  <Trash2 size={16} />
-                  <span>Delete</span>
+                  <Trash2 size={18} className="text-[var(--text-secondary)]" />
+                  <div className="text-left">
+                    <div className="font-medium">Delete for me</div>
+                    <div className="text-xs text-[var(--text-secondary)]">This message will be deleted from your view</div>
+                  </div>
                 </button>
-              </>
-            )}
+
+                {/* Delete for everyone option - only for own messages */}
+                {isOwn && (
+                  <button
+                    onClick={handleDeleteForEveryone}
+                    disabled={isDeleting || !canDeleteForEveryone}
+                    className={`flex items-center gap-3 w-full px-4 py-3 text-sm rounded-lg transition-colors disabled:opacity-50 ${
+                      canDeleteForEveryone 
+                        ? 'text-red-500 bg-red-500/10 hover:bg-red-500/20' 
+                        : 'text-[var(--text-secondary)] bg-[var(--bg-secondary)]'
+                    }`}
+                  >
+                    <Trash2 size={18} />
+                    <div className="text-left">
+                      <div className="font-medium flex items-center gap-2">
+                        Delete for everyone
+                        {!canDeleteForEveryone && <Clock size={14} />}
+                      </div>
+                      <div className="text-xs opacity-80">
+                        {canDeleteForEveryone 
+                          ? 'This message will be deleted for all participants'
+                          : 'Time limit exceeded (1h 8min)'}
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-[var(--border-primary)] flex justify-end">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -370,6 +507,8 @@ export const MessageBubble = memo(MessageBubbleComponent, (prevProps, nextProps)
     prevProps.message.content === nextProps.message.content &&
     prevProps.message.isRead === nextProps.message.isRead &&
     prevProps.message.isEdited === nextProps.message.isEdited &&
+    prevProps.message.deletedForEveryone === nextProps.message.deletedForEveryone &&
+    prevProps.message.deletedAt === nextProps.message.deletedAt &&
     prevProps.isOwn === nextProps.isOwn &&
     prevProps.conversationId === nextProps.conversationId
   );

@@ -151,15 +151,49 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
     }, 2000);
   }, [conversation._id]);
 
-  // Listen for message deletion events (triggered by MessageBubble)
+  // Listen for message deletion events (triggered by MessageBubble or socket)
   useEffect(() => {
-    const handler = () => {
-      // refresh messages when a message is deleted
-      fetchMessages();
+    const handler = (event: CustomEvent<{ id: string; forEveryone?: boolean }>) => {
+      const { id, forEveryone } = event.detail || {};
+      
+      if (forEveryone) {
+        // For "delete for everyone", update the message to show deleted state
+        setMessages(prev => prev.map(msg => 
+          msg._id === id 
+            ? { ...msg, deletedForEveryone: true, content: '', deletedAt: new Date() }
+            : msg
+        ));
+      } else {
+        // For "delete for me", remove the message from the list locally
+        setMessages(prev => prev.filter(msg => msg._id !== id));
+      }
+      
+      // Refresh conversations list to update last message preview
+      window.dispatchEvent(new CustomEvent('conversations:refresh'));
     };
     window.addEventListener('message:deleted', handler as EventListener);
     return () => window.removeEventListener('message:deleted', handler as EventListener);
-  }, [fetchMessages]);
+  }, []);
+
+  // Listen for real-time socket delete events from other users
+  useEffect(() => {
+    const unsubDelete = socketClient.onMessageDeleted((event) => {
+      if (event.conversationId === conversation._id) {
+        if (event.deletedForEveryone) {
+          // Update message to show deleted state
+          setMessages(prev => prev.map(msg => 
+            msg._id === event.messageId 
+              ? { ...msg, deletedForEveryone: true, content: '', deletedAt: new Date() }
+              : msg
+          ));
+        }
+      }
+    });
+
+    return () => {
+      unsubDelete();
+    };
+  }, [conversation._id]);
 
   // Smart scroll: only auto-scroll if user is near bottom or sent a new message
   useEffect(() => {
@@ -716,6 +750,7 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
                 <MemoizedMessageBubble
                   message={message}
                   isOwn={senderId === extractId(currentUser._id)}
+                  conversationId={conversation._id}
                   onImageClick={(url) => handleImageClick(url, message.mediaMetadata)}
                 />
               </div>
