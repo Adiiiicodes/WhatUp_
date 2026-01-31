@@ -1,7 +1,7 @@
 // src/components/chat/NewChatModal.tsx
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Search, Users, UserPlus } from 'lucide-react';
 import { User } from '@/types/chat';
 import apiClient from '@/lib/api';
@@ -43,17 +43,7 @@ export function NewChatModal({ isOpen, onClose, onSelectUser, currentUserId }: N
   const [loading, setLoading] = useState(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchUsers();
-      // Focus search input when modal opens
-      setTimeout(() => searchInputRef.current?.focus(), 100);
-    } else {
-      setSearchQuery('');
-    }
-  }, [isOpen]);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiClient.getUsers();
@@ -66,7 +56,17 @@ export function NewChatModal({ isOpen, onClose, onSelectUser, currentUserId }: N
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchUsers();
+      // Focus search input when modal opens
+      setTimeout(() => searchInputRef.current?.focus(), 100);
+    } else {
+      setSearchQuery('');
+    }
+  }, [isOpen, fetchUsers]);
 
   const filteredUsers = users.filter(user => {
     const query = searchQuery.toLowerCase();

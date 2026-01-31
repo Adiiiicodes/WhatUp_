@@ -99,7 +99,7 @@ export type BorderRadiusKey = keyof typeof borderRadius;
 export type FontSizeKey = keyof typeof fontSize;
 export type FontWeightKey = keyof typeof fontWeight;
 
-export default {
+const theme = {
   colors,
   spacing,
   borderRadius,
@@ -107,3 +107,5 @@ export default {
   fontWeight,
   shadows,
 };
+
+export default theme;
