@@ -448,10 +448,24 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
 
   // Common emojis for quick picker
   const commonEmojis = [
-    '😀', '😂', '😍', '🥰', '😊', '😎', '🤔', '😢',
-    '😡', '🥳', '😴', '🤗', '😇', '🤩', '😋', '😜',
-    '👍', '👎', '❤️', '🔥', '✨', '🎉', '💯', '🙏',
-    '👋', '👏', '🤝', '💪', '✌️', '🤞', '🫶', '💀',
+    // Smileys
+    '😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊',
+    '😇', '🙂', '😉', '😌', '😍', '🥰', '😘', '😋',
+    '😜', '🤪', '😝', '🤗', '🤔', '🤭', '🤫', '🤥',
+    '😶', '😏', '😒', '🙄', '😬', '😮‍💨', '🤤', '😴',
+    // Emotions
+    '😷', '🤒', '🤕', '🤢', '🤮', '🥵', '🥶', '😵',
+    '🤯', '🤠', '🥳', '🥸', '😎', '🤓', '🧐', '😕',
+    '😟', '🙁', '☹️', '😮', '😯', '😲', '😳', '🥺',
+    '😢', '😭', '😤', '😠', '😡', '🤬', '😈', '💀',
+    // Gestures
+    '👍', '👎', '👊', '✊', '🤛', '🤜', '🤝', '👏',
+    '🙌', '👐', '🤲', '🤞', '✌️', '🤟', '🤘', '👌',
+    '🫶', '💪', '👋', '🙏', '✍️', '🫰', '🫵', '👆',
+    // Hearts & Symbols
+    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍',
+    '💔', '❤️‍🔥', '💕', '💞', '💓', '💗', '💖', '💘',
+    '✨', '🔥', '💯', '⭐', '🌟', '💫', '🎉', '🎊',
   ];
 
   const insertEmoji = (emoji: string) => {
@@ -819,22 +833,34 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       {showEmojiPicker && (
         <div
           ref={emojiPickerRef}
-          className="absolute bottom-20 left-4 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl p-3 shadow-xl z-50 w-[280px]"
+          className="absolute bottom-24 left-1/2 -translate-x-1/2 sm:left-4 sm:translate-x-0 bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-2xl shadow-2xl z-50 w-[320px] overflow-hidden"
         >
-          <div className="text-xs text-[var(--text-tertiary)] mb-2 font-medium">Quick Emojis</div>
-          <div className="grid grid-cols-8 gap-1">
-            {commonEmojis.map((emoji, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  insertEmoji(emoji);
-                  setShowEmojiPicker(false);
-                }}
-                className="w-8 h-8 flex items-center justify-center text-xl hover:bg-[var(--bg-hover)] rounded transition-colors"
-              >
-                {emoji}
-              </button>
-            ))}
+          {/* Header with close button */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+            <span className="text-sm font-semibold text-[var(--text-primary)]">Emojis</span>
+            <button
+              onClick={() => setShowEmojiPicker(false)}
+              className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              aria-label="Close emoji picker"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          {/* Emoji grid */}
+          <div className="p-3 max-h-[200px] overflow-y-auto">
+            <div className="grid grid-cols-8 gap-1">
+              {commonEmojis.map((emoji, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => insertEmoji(emoji)}
+                  className="w-9 h-9 flex items-center justify-center text-2xl hover:bg-[var(--bg-hover)] rounded-lg transition-all hover:scale-110 active:scale-95"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
