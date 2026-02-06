@@ -241,11 +241,6 @@ function UserListItem({
           <div className="text-[var(--text-primary)] font-medium truncate group-hover:text-[var(--accent-primary)] transition-colors">
             <HighlightedText text={user.name || 'Unknown'} highlight={searchQuery} />
           </div>
-          {user.isAdmin && (
-            <span className="px-1.5 py-0.5 text-[9px] font-bold bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] rounded">
-              Admin
-            </span>
-          )}
         </div>
         <div className="text-xs text-[var(--text-secondary)] truncate">
           <HighlightedText text={user.email} highlight={searchQuery} />

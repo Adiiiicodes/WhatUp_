@@ -555,35 +555,6 @@ class ApiClient {
   getFileUrl(fileId: string) {
     return `${API_BASE_URL}/api/files/${fileId}`;
   }
-
-  // Admin endpoints
-  async adminLogin(id: string, pass: string) {
-    return this.request<{ token: string }>('/api/admin/login', {
-      method: 'POST',
-      body: JSON.stringify({ id, pass }),
-    });
-  }
-
-  async adminGetUsers() {
-    return this.request<User[]>('/api/admin/users');
-  }
-
-  async adminGetConversations() {
-    return this.request<Conversation[]>('/api/admin/conversations');
-  }
-
-  async adminDeleteConversation(conversationId: string) {
-    return this.request<{ deleted: boolean }>(`/api/admin/conversations/${conversationId}`, {
-      method: 'DELETE',
-    });
-  }
-
-  async makeAdmin(userId: string) {
-    return this.request<{ message: string }>('/api/admin/make-admin', {
-      method: 'POST',
-      body: JSON.stringify({ userId }),
-    });
-  }
 }
 
 export const apiClient = new ApiClient();

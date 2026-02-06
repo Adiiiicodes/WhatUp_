@@ -13,8 +13,7 @@ import {
   FiChevronRight,
   FiEdit2,
   FiCamera,
-  FiLogOut,
-  FiShield
+  FiLogOut
 } from 'react-icons/fi';
 import type { User } from '@/types/chat';
 
@@ -23,7 +22,6 @@ interface ProfileModalProps {
   onClose: () => void;
   user: User;
   onLogout: () => void;
-  onNavigateAdmin?: () => void;
 }
 
 interface SettingsItem {
@@ -38,8 +36,7 @@ export function ProfileModal({
   isOpen, 
   onClose, 
   user, 
-  onLogout,
-  onNavigateAdmin 
+  onLogout
 }: ProfileModalProps) {
   const [activeSection, setActiveSection] = useState<'main' | 'account' | 'privacy' | 'chat' | 'notifications' | 'storage' | 'help'>('main');
 
@@ -112,11 +109,6 @@ export function ProfileModal({
               <h2 className="text-xl font-semibold text-white truncate">
                 {user.name || 'Unknown'}
               </h2>
-              {user.isAdmin && (
-                <span className="px-2 py-0.5 text-xs font-semibold bg-white/20 text-white rounded-full">
-                  Admin
-                </span>
-              )}
               <button className="p-1 hover:bg-white/10 rounded-full transition-colors">
                 <FiEdit2 size={16} className="text-white/80" />
               </button>
@@ -129,27 +121,6 @@ export function ProfileModal({
           </div>
         </div>
       </div>
-
-      {/* Admin Panel Button (if admin) */}
-      {user.isAdmin && onNavigateAdmin && (
-        <div className="px-4 py-3 border-b border-[var(--border-primary)]">
-          <button
-            onClick={onNavigateAdmin}
-            className="w-full flex items-center justify-between p-4 bg-[var(--accent-primary)]/10 hover:bg-[var(--accent-primary)]/20 rounded-xl transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center">
-                <FiShield size={20} className="text-[var(--accent-primary)]" />
-              </div>
-              <div className="text-left">
-                <div className="font-medium text-[var(--text-primary)]">Admin Panel</div>
-                <div className="text-xs text-[var(--text-secondary)]">Manage users and conversations</div>
-              </div>
-            </div>
-            <FiChevronRight size={20} className="text-[var(--text-secondary)]" />
-          </button>
-        </div>
-      )}
 
       {/* Settings Items */}
       <div className="px-4 py-2">

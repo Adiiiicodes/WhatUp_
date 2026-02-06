@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { User, Conversation } from '@/types/chat';
-import { Search, MoreVertical, LogOut, Plus, Camera, FileText, Mic, Image, Video, Settings, Shield, X } from 'lucide-react';
+import { Search, MoreVertical, LogOut, Plus, Camera, FileText, Mic, Image, Video, Settings, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api';
 import socketClient from '@/lib/socketClient';
@@ -241,11 +241,6 @@ export function ChatSidebar({
                       <div className="px-5 py-4 border-b border-[var(--border-primary)]/50 bg-[var(--bg-tertiary)]/50">
                          <div className="flex items-center gap-2">
                            <div className="font-semibold text-[var(--text-primary)]">{currentUser.name}</div>
-                           {currentUser.isAdmin && (
-                             <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] rounded">
-                               Admin
-                             </span>
-                           )}
                          </div>
                          <div className="text-xs text-[var(--text-secondary)] truncate">{currentUser.email}</div>
                       </div>
@@ -256,15 +251,6 @@ export function ChatSidebar({
                         <Settings size={18} />
                         <span>Settings</span>
                       </button>
-                      {currentUser.isAdmin && (
-                        <button
-                          onClick={() => { setShowMenu(false); router.push('/admin'); }}
-                          className="w-full text-left px-5 py-3 hover:bg-[var(--bg-hover)] flex items-center gap-3 text-[var(--text-primary)] transition-colors"
-                        >
-                          <Shield size={18} />
-                          <span>Admin Panel</span>
-                        </button>
-                      )}
                       <div className="border-t border-[var(--border-primary)]/50 my-1" />
                       <button
                         onClick={handleLogout}
