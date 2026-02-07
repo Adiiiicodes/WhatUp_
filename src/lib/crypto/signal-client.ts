@@ -440,6 +440,7 @@ class WebSignalClient implements SignalClient {
       encryptionMetadata: {
         version: 'signal-v3',
         ciphertext: arrayBufferToBase64(ciphertext),
+        iv: arrayBufferToBase64(iv.buffer),
         counter: 0,
         previousCounter: 0,
         messageType: 2,
@@ -476,8 +477,10 @@ class WebSignalClient implements SignalClient {
     );
 
     const ciphertext = base64ToArrayBuffer(encryptionMetadata.ciphertext);
-    // Note: IV should be derived from counter or included in metadata
-    const iv = new Uint8Array(12);
+    // Use IV from metadata, fall back to zeros for legacy messages
+    const iv = encryptionMetadata.iv 
+      ? new Uint8Array(base64ToArrayBuffer(encryptionMetadata.iv))
+      : new Uint8Array(12);
 
     const plaintext = await decryptAESGCM(messageKey, iv, ciphertext);
     return new TextDecoder().decode(plaintext);

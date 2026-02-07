@@ -88,6 +88,7 @@ export interface Message extends BaseMessage {
   encryptionMetadata?: {
     version: string;
     ciphertext: string;
+    iv?: string;
     counter: number;
     previousCounter: number;
     messageType: number;

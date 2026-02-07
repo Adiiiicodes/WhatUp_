@@ -117,21 +117,28 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
             }
 
             // Try to decrypt using device key from backend
-            if (msg.isEncrypted && msg.encryptionMetadata?.ciphertext && msg.deviceKey) {
-              try {
-                const plaintext = await decryptMessage(
-                  typeof msg.senderId === 'string' ? msg.senderId : msg.senderId._id,
-                  msg.senderDeviceId || '',
-                  msg.encryptionMetadata,
-                  msg.deviceKey
-                );
-                if (plaintext) {
-                  // Cache successful decryption for future polls
-                  plaintextCacheRef.current.set(msg._id, plaintext);
-                  return { ...msg, content: plaintext };
+            if (msg.isEncrypted && msg.encryptionMetadata?.ciphertext) {
+              // Skip decryption for legacy messages without IV
+              if (!msg.encryptionMetadata.iv) {
+                return { ...msg, content: '🔒 Encrypted message' };
+              }
+              
+              if (msg.deviceKey) {
+                try {
+                  const plaintext = await decryptMessage(
+                    typeof msg.senderId === 'string' ? msg.senderId : msg.senderId._id,
+                    msg.senderDeviceId || '',
+                    msg.encryptionMetadata,
+                    msg.deviceKey
+                  );
+                  if (plaintext) {
+                    // Cache successful decryption for future polls
+                    plaintextCacheRef.current.set(msg._id, plaintext);
+                    return { ...msg, content: plaintext };
+                  }
+                } catch (err) {
+                  log.warn({ error: err, messageId: msg._id }, '[E2EE] Failed to decrypt message');
                 }
-              } catch (err) {
-                log.warn({ error: err, messageId: msg._id }, '[E2EE] Failed to decrypt message');
               }
             }
             // For encrypted messages that can't be decrypted, show lock indicator

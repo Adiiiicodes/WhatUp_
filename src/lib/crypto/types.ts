@@ -98,6 +98,7 @@ export interface EncryptionMetadata {
   version: string;
   senderRatchetKey?: string;
   ciphertext: string;
+  iv?: string; // Base64-encoded IV for AES-GCM (missing for legacy messages)
   counter: number;
   previousCounter: number;
   messageType: number; // 1 = PreKey, 2 = Signal
