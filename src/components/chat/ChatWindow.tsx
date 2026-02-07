@@ -13,6 +13,7 @@ import apiClient from '@/lib/api';
 import socketClient from '@/lib/socketClient';
 import { logger } from '@/lib/logger';
 import { extractId, formatFileSize, debounce } from '@/lib/utils';
+import { isE2EEEnabled, encryptMessageForRecipient } from '@/lib/e2ee-service';
 
 interface ChatWindowProps {
   currentUser: User;
@@ -297,6 +298,30 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         type: messageType,
         mediaUrl: uploadedMediaUrl || undefined,
         mediaMetadata: mediaMetadataPayload,
+        // E2EE fields will be added below if encryption succeeds
+        ...await (async () => {
+          try {
+            if (messageType === 'text' && newMessage.trim()) {
+              const e2eeEnabled = await isE2EEEnabled();
+              if (e2eeEnabled) {
+                const encrypted = await encryptMessageForRecipient(otherUser._id, newMessage);
+                if (encrypted) {
+                  log.info('[E2EE] Message encrypted successfully');
+                  return {
+                    content: encrypted.encryptedContent,
+                    isEncrypted: true,
+                    senderDeviceId: encrypted.senderDeviceId,
+                    encryptionMetadata: encrypted.encryptionMetadata,
+                    deviceKeys: encrypted.deviceKeys,
+                  };
+                }
+              }
+            }
+          } catch (err) {
+            log.warn({ error: err }, '[E2EE] Encryption failed, sending unencrypted');
+          }
+          return {};
+        })()
       });
 
       if (res.success && res.data) {

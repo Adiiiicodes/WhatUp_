@@ -15,6 +15,7 @@ import { logger } from '@/lib/logger';
 import type { Message, Conversation, User, ApiResponse } from '@/types/chat';
 import { useSocket } from '@/contexts/SocketContext';
 import { extractId } from '@/lib/utils';
+import { encryptMessageForRecipient, isE2EEEnabled } from '@/lib/e2ee-service';
 
 // ============================================
 // Types
@@ -310,14 +311,45 @@ export function useMessages({
     optimisticAddMessage(optimisticMessage);
 
     try {
-      const sendRes = await apiClient.sendMessage({
+      // Try to encrypt the message if E2EE is enabled
+      let messageParams: Parameters<typeof apiClient.sendMessage>[0] = {
         conversationId,
         receiverId,
         content,
         type,
         mediaUrl,
         mediaMetadata: metadata,
-      });
+      };
+
+      // Check if we have E2EE enabled and try to encrypt
+      log.info('[E2EE] Checking E2EE status before sending...');
+      const e2eeEnabled = await isE2EEEnabled();
+      log.info({ e2eeEnabled, type, hasContent: !!content }, '[E2EE] E2EE check result');
+      
+      if (e2eeEnabled && type === 'text' && content) {
+        log.info({ receiverId }, '[E2EE] Attempting to encrypt message');
+        const encrypted = await encryptMessageForRecipient(receiverId, content);
+        log.info({ encrypted: !!encrypted }, '[E2EE] Encryption result');
+        
+        if (encrypted) {
+          log.info('[E2EE] Message encrypted successfully');
+          messageParams = {
+            ...messageParams,
+            content: encrypted.encryptedContent,
+            isEncrypted: true,
+            senderDeviceId: encrypted.senderDeviceId,
+            encryptionMetadata: encrypted.encryptionMetadata,
+            deviceKeys: encrypted.deviceKeys,
+          };
+        } else {
+          log.warn('[E2EE] Encryption returned null, sending unencrypted');
+        }
+      } else {
+        log.info('[E2EE] Skipping encryption - conditions not met');
+      }
+
+      log.info({ isEncrypted: messageParams.isEncrypted }, '[E2EE] Final message params');
+      const sendRes = await apiClient.sendMessage(messageParams);
 
       if (sendRes.success && sendRes.data) {
         // Replace optimistic message with real one

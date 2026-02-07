@@ -9,6 +9,7 @@ import { ChatWindow } from '@/components/chat/ChatWindow';
 import { User, Conversation } from '@/types/chat';
 import apiClient from '@/lib/api';
 import { logger } from '@/lib/logger';
+import { initializeE2EE, checkAndReplenishPreKeys } from '@/lib/e2ee-service';
 
 const log = logger.child({ component: 'ChatPageClient' });
 
@@ -39,6 +40,17 @@ function ChatInner() {
       if (res.success && res.data) {
         setCurrentUser(res.data);
         log.info({ userId: res.data._id }, 'Current user loaded');
+        
+        // Initialize E2EE after user is authenticated
+        console.log('[E2EE] User loaded, initializing E2EE...');
+        initializeE2EE()
+          .then(() => {
+            console.log('[E2EE] Initialized successfully');
+            return checkAndReplenishPreKeys();
+          })
+          .catch((err) => {
+            console.error('[E2EE] Initialization failed:', err);
+          });
       }
     } catch (error) {
       log.error({ error }, 'Error fetching current user');

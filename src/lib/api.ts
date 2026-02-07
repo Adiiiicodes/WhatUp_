@@ -453,6 +453,21 @@ class ApiClient {
       height?: number;
       duration?: number;
     };
+    // E2EE fields
+    isEncrypted?: boolean;
+    senderDeviceId?: string;
+    encryptionMetadata?: {
+      version: string;
+      ciphertext: string;
+      counter: number;
+      previousCounter: number;
+      messageType: number;
+    };
+    deviceKeys?: Array<{
+      recipientDeviceUuid: string;
+      encryptedMessageKey: string;
+      messageType: number;
+    }>;
   }) {
     return this.request<Message>('/api/messages', {
       method: 'POST',

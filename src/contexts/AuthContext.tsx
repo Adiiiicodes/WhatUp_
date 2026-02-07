@@ -6,7 +6,11 @@ import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api';
 import socketClient from '@/lib/socketClient';
 import { logger } from '@/lib/logger';
+import { initializeE2EE, checkAndReplenishPreKeys } from '@/lib/e2ee-service';
 import type { User } from '@/types/chat';
+
+// Debug log to verify import works
+console.log('[AuthContext] E2EE module imported:', typeof initializeE2EE);
 
 // ============================================
 // Types
@@ -71,6 +75,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         log.info({ userId: res.data._id }, 'User refreshed successfully');
         setUser(res.data);
         connectSocket(token);
+        
+        // Initialize E2EE when user is authenticated (handles page refresh case)
+        console.log('[AuthContext] Calling initializeE2EE...');
+        initializeE2EE()
+          .then(() => {
+            console.log('[AuthContext] E2EE initialized successfully');
+            log.info('E2EE initialized on refresh');
+            return checkAndReplenishPreKeys();
+          })
+          .catch((err) => {
+            console.error('[AuthContext] E2EE initialization failed:', err);
+            log.warn({ error: err }, 'E2EE initialization failed on refresh');
+          });
       } else {
         // Token invalid, clear it
         log.warn('Token invalid, clearing auth state');
@@ -107,6 +124,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.success && res.data) {
         log.info({ email }, 'Login successful');
         await refreshUser();
+        
+        // Initialize E2EE in background (don't block login)
+        initializeE2EE()
+          .then(() => {
+            log.info('E2EE initialized');
+            return checkAndReplenishPreKeys();
+          })
+          .catch((err) => log.warn({ error: err }, 'E2EE initialization failed'));
+        
         return true;
       } else {
         const errorMsg = typeof res.error === 'string' 
@@ -139,6 +165,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.success && res.data) {
         log.info({ email }, 'Signup successful');
         await refreshUser();
+        
+        // Initialize E2EE in background (don't block signup)
+        initializeE2EE()
+          .then(() => {
+            log.info('E2EE initialized for new user');
+            return checkAndReplenishPreKeys();
+          })
+          .catch((err) => log.warn({ error: err }, 'E2EE initialization failed'));
+        
         return true;
       } else {
         const errorMsg = typeof res.error === 'string' 
