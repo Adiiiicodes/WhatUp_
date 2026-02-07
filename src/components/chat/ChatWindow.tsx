@@ -13,7 +13,8 @@ import apiClient from '@/lib/api';
 import socketClient from '@/lib/socketClient';
 import { logger } from '@/lib/logger';
 import { extractId, formatFileSize, debounce } from '@/lib/utils';
-import { isE2EEEnabled, encryptMessageForRecipient } from '@/lib/e2ee-service';
+import { isE2EEEnabled, encryptMessageForRecipient, decryptMessage } from '@/lib/e2ee-service';
+import { getCryptoStorage } from '@/lib/crypto';
 
 interface ChatWindowProps {
   currentUser: User;
@@ -43,6 +44,8 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previousMessagesLengthRef = useRef(0);
   const shouldAutoScrollRef = useRef(true);
+  // Local cache of decrypted plaintext so polling doesn't erase sender's own messages
+  const plaintextCacheRef = useRef<Map<string, string>>(new Map());
 
   // Media upload state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -92,13 +95,55 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
   const fetchMessages = useCallback(async () => {
     const timer = log.time('fetchMessages');
     try {
-      const res = await apiClient.getMessages(conversation._id);
+      // Get device UUID for E2EE decryption
+      let deviceUuid: string | undefined;
+      try {
+        const storage = getCryptoStorage();
+        deviceUuid = (await storage.getDeviceUuid()) || undefined;
+      } catch {
+        // E2EE not initialized yet
+      }
+
+      const res = await apiClient.getMessages(conversation._id, deviceUuid);
 
       if (res.success && res.data) {
-        setMessages(res.data);
+        // Decrypt any encrypted messages
+        const decryptedMessages = await Promise.all(
+          res.data.map(async (msg: Message) => {
+            // First check local plaintext cache (sender's own messages)
+            const cachedPlaintext = plaintextCacheRef.current.get(msg._id);
+            if (cachedPlaintext && msg.isEncrypted) {
+              return { ...msg, content: cachedPlaintext };
+            }
+
+            // Try to decrypt using device key from backend
+            if (msg.isEncrypted && msg.encryptionMetadata?.ciphertext && msg.deviceKey) {
+              try {
+                const plaintext = await decryptMessage(
+                  typeof msg.senderId === 'string' ? msg.senderId : msg.senderId._id,
+                  msg.senderDeviceId || '',
+                  msg.encryptionMetadata,
+                  msg.deviceKey
+                );
+                if (plaintext) {
+                  // Cache successful decryption for future polls
+                  plaintextCacheRef.current.set(msg._id, plaintext);
+                  return { ...msg, content: plaintext };
+                }
+              } catch (err) {
+                log.warn({ error: err, messageId: msg._id }, '[E2EE] Failed to decrypt message');
+              }
+            }
+            // For encrypted messages that can't be decrypted, show lock indicator
+            if (msg.isEncrypted && !msg.content) {
+              return { ...msg, content: '🔒 Encrypted message' };
+            }
+            return msg;
+          })
+        );
+        setMessages(decryptedMessages);
       } else if (res.error) {
         log.warn({ error: res.error }, 'Error fetching messages');
-        // If conversation doesn't exist anymore, stop polling
         setMessages([]);
         window.dispatchEvent(new CustomEvent('conversations:refresh'));
       }
@@ -291,6 +336,9 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
         }
       }
 
+      // Store the original plaintext before encryption potentially replaces it
+      const originalPlaintext = newMessage;
+
       const res = await apiClient.sendMessage({
         conversationId: conversation._id,
         receiverId: otherUser._id,
@@ -325,7 +373,16 @@ export function ChatWindow({ currentUser, conversation, onBack }: ChatWindowProp
       });
 
       if (res.success && res.data) {
-        setMessages([...messages, res.data]);
+        // For encrypted messages, the backend returns content=null
+        // Restore the original plaintext for the sender's local view
+        // and cache it so polling doesn't erase it
+        const messageForDisplay = res.data.isEncrypted
+          ? { ...res.data, content: originalPlaintext }
+          : res.data;
+        if (res.data.isEncrypted && res.data._id) {
+          plaintextCacheRef.current.set(res.data._id, originalPlaintext);
+        }
+        setMessages([...messages, messageForDisplay]);
         setNewMessage('');
         // Clear media state
         handleCancelUpload();

@@ -1,6 +1,6 @@
 // src/components/chat/MessageBubble.tsx
 import { Message } from '@/types/chat';
-import { Download, FileText, Trash2, CheckCheck, Check, MoreVertical, Copy, Reply, Forward, Ban, Clock } from 'lucide-react';
+import { Download, FileText, Trash2, CheckCheck, Check, MoreVertical, Copy, Reply, Forward, Ban, Clock, Lock } from 'lucide-react';
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import apiClient from '@/lib/api';
 import { VoiceMessageBubble } from './VoiceMessageBubble';
@@ -316,6 +316,9 @@ function MessageBubbleComponent({ message, isOwn, conversationId, onImageClick, 
           <div className={`text-[10px] mt-1 flex items-center justify-end gap-1 select-none ${
             isOwn ? 'text-white/70' : 'text-[var(--text-secondary)]'
           }`}>
+            {message.isEncrypted && (
+              <Lock size={10} strokeWidth={2} />
+            )}
             <span>
               {new Date(message.createdAt || message.timestamp || Date.now()).toLocaleTimeString([], {
                 hour: '2-digit',

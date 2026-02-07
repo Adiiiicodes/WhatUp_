@@ -434,8 +434,12 @@ class ApiClient {
   }
 
   // Messages
-  async getMessages(conversationId: string) {
-    return this.request<Message[]>(`/api/messages?conversationId=${conversationId}`);
+  async getMessages(conversationId: string, deviceUuid?: string) {
+    let url = `/api/messages?conversationId=${conversationId}`;
+    if (deviceUuid) {
+      url += `&deviceUuid=${encodeURIComponent(deviceUuid)}`;
+    }
+    return this.request<Message[]>(url);
   }
 
   async sendMessage(params: {

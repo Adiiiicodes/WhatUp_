@@ -211,7 +211,8 @@ export interface SignalClient {
   encryptMessage(
     receiverId: string,
     devices: PreKeyBundle[],
-    plaintext: string
+    plaintext: string,
+    senderDeviceUuid?: string
   ): Promise<{
     encryptionMetadata: EncryptionMetadata;
     deviceKeys: DeviceKeyPayload[];

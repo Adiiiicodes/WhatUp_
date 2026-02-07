@@ -184,11 +184,12 @@ export async function encryptMessageForRecipient(
 
     console.log('[E2EE] Encrypting message...');
     
-    // Encrypt message for all recipient devices
+    // Encrypt message for all recipient devices (+ sender's own device for self-decryption)
     const { encryptionMetadata, deviceKeys } = await client.encryptMessage(
       recipientId,
       bundles,
-      plaintext
+      plaintext,
+      senderDeviceUuid
     );
 
     return {
@@ -211,7 +212,7 @@ export async function decryptMessage(
   senderId: string,
   senderDeviceId: string,
   encryptionMetadata: EncryptionMetadata,
-  deviceKey?: DeviceKeyPayload
+  deviceKey?: { encryptedMessageKey: string; messageType: number }
 ): Promise<string | null> {
   try {
     const client = getSignalClient();

@@ -82,6 +82,20 @@ export interface Message extends BaseMessage {
   deletedAt?: Date;
   deletedForEveryone?: boolean;
   deletedBy?: string[];
+  // E2EE fields
+  isEncrypted?: boolean;
+  senderDeviceId?: string;
+  encryptionMetadata?: {
+    version: string;
+    ciphertext: string;
+    counter: number;
+    previousCounter: number;
+    messageType: number;
+  };
+  deviceKey?: {
+    encryptedMessageKey: string;
+    messageType: number;
+  };
 }
 
 // Type guards for message types

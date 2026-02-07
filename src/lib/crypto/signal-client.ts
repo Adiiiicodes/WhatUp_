@@ -395,7 +395,8 @@ class WebSignalClient implements SignalClient {
   async encryptMessage(
     receiverId: string,
     devices: PreKeyBundle[],
-    plaintext: string
+    plaintext: string,
+    senderDeviceUuid?: string
   ): Promise<{
     encryptionMetadata: EncryptionMetadata;
     deviceKeys: DeviceKeyPayload[];
@@ -421,6 +422,15 @@ class WebSignalClient implements SignalClient {
         recipientDeviceUuid: device.deviceUuid,
         encryptedMessageKey: arrayBufferToBase64(exportedKey),
         messageType: 2, // SignalMessage
+      });
+    }
+
+    // Also include a key for the sender's own device so they can decrypt their own messages
+    if (senderDeviceUuid) {
+      deviceKeys.push({
+        recipientDeviceUuid: senderDeviceUuid,
+        encryptedMessageKey: arrayBufferToBase64(exportedKey),
+        messageType: 2,
       });
     }
 
